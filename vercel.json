@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/api/data912/:path*", "destination": "https://data912.com/:path*" },
+    { "source": "/api/dolar/:path*", "destination": "https://dolarapi.com/:path*" },
+    { "source": "/api/bcra/:path*", "destination": "https://api.bcra.gob.ar/:path*" },
+    { "source": "/api/argentinadatos/:path*", "destination": "https://api.argentinadatos.com/:path*" }
+  ]
+}
