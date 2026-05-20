@@ -1,0 +1,26 @@
+{
+  "/api/data912": {
+    "target": "https://data912.com",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/api/data912": "" }
+  },
+  "/api/dolar": {
+    "target": "https://dolarapi.com",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/api/dolar": "" }
+  },
+  "/api/bcra": {
+    "target": "https://api.bcra.gob.ar",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/api/bcra": "" }
+  },
+  "/api/argentinadatos": {
+    "target": "https://api.argentinadatos.com",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/api/argentinadatos": "" }
+  }
+}

@@ -1,0 +1,92 @@
+<header class="topbar">
+  <div class="brand">
+    <h1>Cotizaciones Boston</h1>
+    <span class="sub">Mercado argentino en vivo · data912 + dolarapi</span>
+  </div>
+
+  <div class="controls">
+    <label class="interval">
+      Refrescar cada
+      <input
+        type="number"
+        min="3"
+        max="300"
+        [ngModel]="intervalSec()"
+        (ngModelChange)="intervalSec.set($event); onIntervalChange()"
+      />
+      seg
+    </label>
+
+    <button class="btn" (click)="refreshAll()" [disabled]="loading()">
+      {{ loading() ? 'Actualizando…' : 'Refrescar ahora' }}
+    </button>
+
+    <button class="btn pause" (click)="togglePause()" [class.paused]="paused()">
+      {{ paused() ? '▶ Reanudar' : '⏸ Pausar' }}
+    </button>
+
+    <button class="btn primary" (click)="downloadXLSX()">⬇ Descargar XLSX</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  @for (p of panels; track p.id) {
+    <button
+      class="tab"
+      [class.active]="activePanel() === p.id"
+      (click)="setActive(p.id)"
+    >
+      <span class="label">{{ p.label }}</span>
+      <span class="status" [class.err]="errors()[p.id]">{{ panelStatus(p.id) }}</span>
+    </button>
+  }
+</nav>
+
+<section class="panel">
+  <div class="panel-head">
+    <input
+      class="search"
+      type="text"
+      placeholder="Filtrar…"
+      [ngModel]="filter()"
+      (ngModelChange)="filter.set($event)"
+    />
+    <span class="count">{{ activeRows().length }} filas</span>
+    @if (paused()) {
+      <span class="badge paused">⏸ Pausado — snapshot congelado</span>
+    }
+  </div>
+
+  @if (errors()[activePanel()]) {
+    <div class="error-box">Error: {{ errors()[activePanel()] }}</div>
+  }
+
+  @if (activeRows().length) {
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            @for (col of activeColumns(); track col) {
+              <th>{{ col }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of activeRows(); track $index) {
+            <tr>
+              @for (col of activeColumns(); track col) {
+                <td>{{ fmt(row[col]) }}</td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else {
+    <div class="empty">Cargando o sin datos…</div>
+  }
+</section>
+
+<footer class="foot">
+  <span>Snapshot al pausar/descargar — los datos quedan congelados.</span>
+</footer>
