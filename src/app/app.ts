@@ -5,16 +5,18 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin, Subscription, timer } from 'rxjs';
 import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
+import { ArbitrageComponent } from './arbitrage.component';
 
 interface PanelDef {
   id: string;
   label: string;
-  url: string;
+  url?: string;
   // optional transformer (e.g. dólar returns objects with nested fields)
   transform?: (raw: any) => any[];
 }
 
 const PANELS: PanelDef[] = [
+  { id: 'arbitraje',    label: 'Arbitraje' },
   { id: 'acciones',     label: 'Acciones ARG',  url: '/api/data912/live/arg_stocks' },
   { id: 'cedears',      label: 'CEDEARs',       url: '/api/data912/live/arg_cedears' },
   { id: 'bonos',        label: 'Bonos',         url: '/api/data912/live/arg_bonds' },
@@ -28,7 +30,7 @@ const PANELS: PanelDef[] = [
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ArbitrageComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -96,8 +98,9 @@ export class App implements OnInit, OnDestroy {
   refreshAll() {
     if (this.loading()) return;
     this.loading.set(true);
-    const calls = PANELS.map((p) =>
-      this.http.get<any>(p.url).pipe(
+    const fetchable = PANELS.filter((p) => !!p.url);
+    const calls = fetchable.map((p) =>
+      this.http.get<any>(p.url!).pipe(
         map((res) => ({ id: p.id, rows: this.normalize(res), error: null as string | null })),
         catchError((err) =>
           of({ id: p.id, rows: [] as any[], error: err?.message ?? 'Error de red' })
@@ -184,11 +187,21 @@ export class App implements OnInit, OnDestroy {
   }
 
   panelStatus(id: string): string {
+    if (id === 'arbitraje') {
+      const ts = this.lastUpdated()['cedears'];
+      if (!ts) return 'esperando CEDEARs…';
+      const sec = Math.round((Date.now() - ts.getTime()) / 1000);
+      return `hace ${sec}s (cedears)`;
+    }
     const ts = this.lastUpdated()[id];
     const err = this.errors()[id];
     if (err) return `error: ${err.substring(0, 30)}`;
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
     return `hace ${sec}s`;
+  }
+
+  cedearRows(): any[] {
+    return this.data()['cedears'] ?? [];
   }
 }

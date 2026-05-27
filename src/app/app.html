@@ -34,56 +34,69 @@
     <button
       class="tab"
       [class.active]="activePanel() === p.id"
+      [class.feature]="p.id === 'arbitraje'"
       (click)="setActive(p.id)"
     >
-      <span class="label">{{ p.label }}</span>
+      @if (p.id === 'arbitraje') {
+        <span class="label">
+          <span class="spark">◆</span>
+          {{ p.label }}
+          <span class="badge-new">NUEVO</span>
+        </span>
+      } @else {
+        <span class="label">{{ p.label }}</span>
+      }
       <span class="status" [class.err]="errors()[p.id]">{{ panelStatus(p.id) }}</span>
     </button>
   }
 </nav>
 
 <section class="panel">
-  <div class="panel-head">
-    <input
-      class="search"
-      type="text"
-      placeholder="Filtrar…"
-      [ngModel]="filter()"
-      (ngModelChange)="filter.set($event)"
-    />
-    <span class="count">{{ activeRows().length }} filas</span>
-    @if (paused()) {
-      <span class="badge paused">⏸ Pausado — snapshot congelado</span>
+  @if (activePanel() === 'arbitraje') {
+    <app-arbitrage [cedearRows]="cedearRows()" />
+  } @else {
+    <div class="panel-head">
+      <input
+        class="search"
+        type="text"
+        placeholder="Filtrar…"
+        [ngModel]="filter()"
+        (ngModelChange)="filter.set($event)"
+      />
+      <span class="count">{{ activeRows().length }} filas</span>
+      @if (paused()) {
+        <span class="badge paused">⏸ Pausado — snapshot congelado</span>
+      }
+    </div>
+
+    @if (errors()[activePanel()]) {
+      <div class="error-box">Error: {{ errors()[activePanel()] }}</div>
     }
-  </div>
 
-  @if (errors()[activePanel()]) {
-    <div class="error-box">Error: {{ errors()[activePanel()] }}</div>
-  }
-
-  @if (activeRows().length) {
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            @for (col of activeColumns(); track col) {
-              <th>{{ col }}</th>
-            }
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of activeRows(); track $index) {
+    @if (activeRows().length) {
+      <div class="table-wrap">
+        <table>
+          <thead>
             <tr>
               @for (col of activeColumns(); track col) {
-                <td>{{ fmt(row[col]) }}</td>
+                <th>{{ col }}</th>
               }
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-  } @else {
-    <div class="empty">Cargando o sin datos…</div>
+          </thead>
+          <tbody>
+            @for (row of activeRows(); track $index) {
+              <tr>
+                @for (col of activeColumns(); track col) {
+                  <td>{{ fmt(row[col]) }}</td>
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="empty">Cargando o sin datos…</div>
+    }
   }
 </section>
 

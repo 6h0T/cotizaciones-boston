@@ -59,9 +59,30 @@
 }
 .tab:hover { color: #111827; }
 .tab.active { color: #0f172a; border-bottom-color: #16a34a; }
-.tab .label { font-size: 13px; font-weight: 600; }
+.tab .label { font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .tab .status { font-size: 11px; color: #9ca3af; }
 .tab .status.err { color: #dc2626; }
+
+.tab.feature {
+  background: linear-gradient(135deg, #eef2ff 0%, #fdf4ff 100%);
+  border-radius: 10px 10px 0 0;
+  margin-right: 6px;
+  border-bottom-color: transparent;
+  position: relative;
+}
+.tab.feature:hover { background: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 100%); }
+.tab.feature.active {
+  border-bottom-color: #7c3aed;
+  background: linear-gradient(135deg, #ede9fe 0%, #fae8ff 100%);
+}
+.tab.feature .label { color: #5b21b6; font-weight: 700; }
+.tab.feature .spark { color: #a855f7; font-size: 10px; }
+.tab.feature .badge-new {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
+  background: #7c3aed; color: #ffffff;
+  padding: 2px 6px; border-radius: 999px;
+  line-height: 1;
+}
 
 .panel { padding: 16px 24px 80px; }
 
