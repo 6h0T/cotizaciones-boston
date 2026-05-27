@@ -52,11 +52,6 @@ const REASONABLE_MAX = 5000;
           >CCL (C)</button>
         </div>
 
-        <label class="auto">
-          <input type="checkbox" [ngModel]="autoSelect()" (ngModelChange)="autoSelect.set($event)" />
-          Auto-seleccionar mejor par
-        </label>
-
         <label class="monto">
           Monto inicial ARS
           <input
@@ -80,8 +75,7 @@ const REASONABLE_MAX = 5000;
             <h3>1. Compro USD con</h3>
             <p class="hint">El CEDEAR con el dólar más barato</p>
             <select
-              [disabled]="autoSelect()"
-              [ngModel]="buyTicker()"
+[ngModel]="buyTicker()"
               (ngModelChange)="buyTicker.set($event)"
             >
               @for (p of buyOptions(); track p.base) {
@@ -118,8 +112,7 @@ const REASONABLE_MAX = 5000;
             <h3>2. Vendo USD con</h3>
             <p class="hint">El CEDEAR que paga más ARS por dólar</p>
             <select
-              [disabled]="autoSelect()"
-              [ngModel]="sellTicker()"
+[ngModel]="sellTicker()"
               (ngModelChange)="sellTicker.set($event)"
             >
               @for (p of sellOptions(); track p.base) {
@@ -241,7 +234,6 @@ const REASONABLE_MAX = 5000;
     }
     .seg-btn:last-child { border-right: 0; }
     .seg-btn.on { background: #16a34a; color: #ffffff; font-weight: 600; }
-    .auto { font-size: 13px; color: #374151; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
     .monto { font-size: 13px; color: #374151; display: inline-flex; align-items: center; gap: 6px; }
     .monto input {
       width: 140px; background: #ffffff; color: #111827;
@@ -315,7 +307,6 @@ export class ArbitrageComponent {
   cedearRows = input<any[]>([]);
 
   variant = signal<'D' | 'C'>('D');
-  autoSelect = signal(true);
   amountArs = signal(1_000_000);
   buyTicker = signal('');
   sellTicker = signal('');
@@ -370,13 +361,11 @@ export class ArbitrageComponent {
   );
 
   selectedBuy = computed<Pair | null>(() => {
-    if (this.autoSelect()) return this.buyOptions()[0] ?? null;
     const t = this.buyTicker();
     return this.pairs().find(p => p.base === t) ?? this.buyOptions()[0] ?? null;
   });
 
   selectedSell = computed<Pair | null>(() => {
-    if (this.autoSelect()) return this.sellOptions()[0] ?? null;
     const t = this.sellTicker();
     return this.pairs().find(p => p.base === t) ?? this.sellOptions()[0] ?? null;
   });
