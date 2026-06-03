@@ -6,6 +6,7 @@ import { forkJoin, Subscription, timer } from 'rxjs';
 import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
+import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, iolCedearsUrl } from './market.config';
 
 interface PanelDef {
   id: string;
@@ -15,8 +16,8 @@ interface PanelDef {
   transform?: (raw: any) => any[];
 }
 
+// Panels de datos (cada uno con su url para el fetch).
 const PANELS: PanelDef[] = [
-  { id: 'arbitraje',    label: 'Arbitraje' },
   { id: 'acciones',     label: 'Acciones ARG',  url: '/api/data912/live/arg_stocks' },
   { id: 'cedears',      label: 'CEDEARs',       url: '/api/data912/live/arg_cedears' },
   { id: 'bonos',        label: 'Bonos',         url: '/api/data912/live/arg_bonds' },
@@ -25,6 +26,16 @@ const PANELS: PanelDef[] = [
   { id: 'opciones',     label: 'Opciones',      url: '/api/data912/live/arg_options' },
   { id: 'usa',          label: 'Acciones USA',  url: '/api/data912/live/usa_stocks' },
   { id: 'dolar',        label: 'Dólar',         url: '/api/dolar/v1/dolares' },
+];
+
+// Entrada unificada de la nav: arb tabs primero, luego data tabs.
+type NavTab =
+  | { kind: 'arb'; id: string; label: string; short: string; def: ArbTab }
+  | { kind: 'data'; id: string; label: string };
+
+const NAV_TABS: NavTab[] = [
+  ...ARB_TABS.map((t) => ({ kind: 'arb' as const, id: t.id, label: t.label, short: t.short, def: t })),
+  ...PANELS.map((p) => ({ kind: 'data' as const, id: p.id, label: p.label })),
 ];
 
 @Component({
@@ -38,7 +49,9 @@ export class App implements OnInit, OnDestroy {
   private http = inject(HttpClient);
 
   panels = PANELS;
-  activePanel = signal<string>(PANELS[0].id);
+  navTabs = NAV_TABS;
+  arbTabs = ARB_TABS;
+  activePanel = signal<string>(ARB_TABS[0].id);
 
   // panelId -> rows
   data = signal<Record<string, any[]>>({});
@@ -48,11 +61,38 @@ export class App implements OnInit, OnDestroy {
   lastUpdated = signal<Record<string, Date | null>>({});
 
   paused = signal(false);
-  intervalSec = signal(15);
+  intervalSec = signal<number>(DEFAULTS.refreshSec);
   loading = signal(false);
   filter = signal('');
 
+  // Filas de CEDEARs por plazo. Fuente preferida: IOL (precio real por plazo).
+  // Fallback: data912 (un solo libro ≈ 24hs) para ambos plazos.
+  cedearsT0 = signal<CedearRow[]>([]); // Contado Inmediato (IOL t0)
+  cedearsT1 = signal<CedearRow[]>([]); // 24hs (IOL t1)
+  // true = datos reales IOL para ese plazo; false = fallback data912.
+  iolSource = signal<{ t0: boolean; t1: boolean }>({ t0: false, t1: false });
+
   private sub?: Subscription;
+
+  // ArbTab activa, o null si la pestaña activa es una data tab.
+  activeArbTab = computed<ArbTab | null>(() => {
+    const id = this.activePanel();
+    return this.arbTabs.find((t) => t.id === id) ?? null;
+  });
+
+  // Filas que recibe el componente de arbitraje según el plazo de la pestaña activa.
+  activeArbRows = computed<CedearRow[]>(() => {
+    const tab = this.activeArbTab();
+    if (!tab) return [];
+    return tab.settlement === 'CI' ? this.cedearsT0() : this.cedearsT1();
+  });
+
+  // ¿La pestaña activa muestra precios reales de plazo (IOL) o estimados (fallback)?
+  activeCiIsReal = computed<boolean>(() => {
+    const tab = this.activeArbTab();
+    if (!tab) return false;
+    return tab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
+  });
 
   activeRows = computed(() => {
     const rows = this.data()[this.activePanel()] ?? [];
@@ -107,12 +147,24 @@ export class App implements OnInit, OnDestroy {
         )
       )
     );
+    // IOL: precios reales por plazo (t0=CI, t1=24hs). Si falla, fallback a data912.
+    const iolCall = (s: Settlement, id: string) =>
+      this.http.get<CedearRow[]>(iolCedearsUrl(s)).pipe(
+        map((rows) => ({ id, rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
+        catchError(() => of({ id, rows: [] as CedearRow[], error: 'iol' as string | null }))
+      );
+    calls.push(iolCall('CI', '__iol_t0') as any, iolCall('H24', '__iol_t1') as any);
+
     forkJoin(calls).subscribe((results) => {
       const dataAcc = { ...this.data() };
       const errAcc = { ...this.errors() };
       const tsAcc = { ...this.lastUpdated() };
       const now = new Date();
+      let iolT0: CedearRow[] = [];
+      let iolT1: CedearRow[] = [];
       for (const r of results) {
+        if (r.id === '__iol_t0') { iolT0 = (r.rows as CedearRow[]) ?? []; continue; }
+        if (r.id === '__iol_t1') { iolT1 = (r.rows as CedearRow[]) ?? []; continue; }
         if (r.error) {
           errAcc[r.id] = r.error;
         } else {
@@ -121,6 +173,14 @@ export class App implements OnInit, OnDestroy {
           tsAcc[r.id] = now;
         }
       }
+      // Fallback por plazo: IOL si trajo filas, si no el libro de data912 ('cedears').
+      const data912 = (dataAcc['cedears'] as CedearRow[]) ?? [];
+      const t0Real = iolT0.length > 0;
+      const t1Real = iolT1.length > 0;
+      this.cedearsT0.set(t0Real ? iolT0 : data912);
+      this.cedearsT1.set(t1Real ? iolT1 : data912);
+      this.iolSource.set({ t0: t0Real, t1: t1Real });
+
       this.data.set(dataAcc);
       this.errors.set(errAcc);
       this.lastUpdated.set(tsAcc);
@@ -187,11 +247,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   panelStatus(id: string): string {
-    if (id === 'arbitraje') {
+    // Las arb tabs no tienen url propia: usan el feed de CEDEARs (IOL o data912).
+    const arbTab = this.arbTabs.find((t) => t.id === id);
+    if (arbTab) {
       const ts = this.lastUpdated()['cedears'];
       if (!ts) return 'esperando CEDEARs…';
       const sec = Math.round((Date.now() - ts.getTime()) / 1000);
-      return `hace ${sec}s (cedears)`;
+      const real = arbTab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
+      return `hace ${sec}s · ${real ? 'IOL' : 'data912'}`;
     }
     const ts = this.lastUpdated()[id];
     const err = this.errors()[id];
@@ -199,9 +262,5 @@ export class App implements OnInit, OnDestroy {
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
     return `hace ${sec}s`;
-  }
-
-  cedearRows(): any[] {
-    return this.data()['cedears'] ?? [];
   }
 }

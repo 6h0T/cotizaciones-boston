@@ -63,13 +63,16 @@
 .tab .status { font-size: 11px; color: #9ca3af; }
 .tab .status.err { color: #dc2626; }
 
+/* Las 4 pestañas de arbitraje (MEP/CCL × CI/24h) — grupo destacado. */
 .tab.feature {
   background: linear-gradient(135deg, #eef2ff 0%, #fdf4ff 100%);
   border-radius: 10px 10px 0 0;
-  margin-right: 6px;
   border-bottom-color: transparent;
   position: relative;
+  min-width: 96px;
 }
+/* Separador visual entre el grupo arb y las data tabs (última arb tab). */
+.tab.feature + .tab:not(.feature) { margin-left: 10px; }
 .tab.feature:hover { background: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 100%); }
 .tab.feature.active {
   border-bottom-color: #7c3aed;

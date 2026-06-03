@@ -30,30 +30,34 @@
 </header>
 
 <nav class="tabs">
-  @for (p of panels; track p.id) {
+  @for (t of navTabs; track t.id) {
     <button
       class="tab"
-      [class.active]="activePanel() === p.id"
-      [class.feature]="p.id === 'arbitraje'"
-      (click)="setActive(p.id)"
+      [class.active]="activePanel() === t.id"
+      [class.feature]="t.kind === 'arb'"
+      (click)="setActive(t.id)"
     >
-      @if (p.id === 'arbitraje') {
+      @if (t.kind === 'arb') {
         <span class="label">
           <span class="spark">◆</span>
-          {{ p.label }}
-          <span class="badge-new">NUEVO</span>
+          {{ t.short }}
         </span>
       } @else {
-        <span class="label">{{ p.label }}</span>
+        <span class="label">{{ t.label }}</span>
       }
-      <span class="status" [class.err]="errors()[p.id]">{{ panelStatus(p.id) }}</span>
+      <span class="status" [class.err]="errors()[t.id]">{{ panelStatus(t.id) }}</span>
     </button>
   }
 </nav>
 
 <section class="panel">
-  @if (activePanel() === 'arbitraje') {
-    <app-arbitrage [cedearRows]="cedearRows()" />
+  @if (activeArbTab()) {
+    <app-arbitrage
+      [cedearRows]="activeArbRows()"
+      [dollarType]="activeArbTab()!.dollarType"
+      [settlement]="activeArbTab()!.settlement"
+      [ciIsReal]="activeCiIsReal()"
+    />
   } @else {
     <div class="panel-head">
       <input
