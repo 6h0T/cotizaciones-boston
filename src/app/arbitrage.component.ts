@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -75,7 +75,29 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
           con vol ≥ {{ fmt(minUsdVol(), 0) }} USD
           <span class="pc-total">/ {{ pairs().length }} totales</span>
         </span>
+
+        @if (!paused()) {
+          <button class="freeze-btn" (click)="freeze()" title="Pausar el refresh para operar en el broker">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Congelar para operar
+          </button>
+        }
       </div>
+
+      @if (paused()) {
+        <div class="freeze-bar">
+          <svg class="fb-lock" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <div class="fb-text">
+            <strong>Congelado para operar</strong>
+            <span>
+              El refresh está pausado: la selección y los precios no cambian.
+              @if (selectedBuy(); as b) { Comprás <b>{{ b.base }}</b>. }
+              @if (selectedSell(); as s) { Vendés <b>{{ s.base }}</b>. }
+            </span>
+          </div>
+          <button class="fb-resume" (click)="unfreeze()">Reanudar en vivo</button>
+        </div>
+      }
 
       @if (settlement() === 'CI') {
         @if (ciIsReal()) {
@@ -129,7 +151,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
             <p class="hint">Auto-seleccionado: la menor cotización de venta</p>
             <select
               [ngModel]="manualBuy()"
-              (ngModelChange)="manualBuy.set($event || null)"
+              (ngModelChange)="onManualBuy($event)"
             >
               <option [ngValue]="null">Automático (mejor)</option>
               @for (p of buyOptions(); track p.base) {
@@ -167,7 +189,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
             <p class="hint">Auto-seleccionado: la mayor cotización de compra</p>
             <select
               [ngModel]="manualSell()"
-              (ngModelChange)="manualSell.set($event || null)"
+              (ngModelChange)="onManualSell($event)"
             >
               <option [ngValue]="null">Automático (mejor)</option>
               @for (p of sellOptions(); track p.base) {
@@ -366,6 +388,41 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     }
     td.vol-lo { color: var(--ink-3); }
 
+    /* Congelar para operar */
+    .freeze-btn {
+      align-self: center;
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 32px; padding: 0 12px;
+      border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      border-radius: var(--r-sm); cursor: pointer;
+      font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
+      transition: opacity .12s, transform .04s;
+    }
+    .freeze-btn:hover { opacity: .88; }
+    .freeze-btn:active { transform: translateY(1px); }
+
+    .freeze-bar {
+      display: flex; align-items: center; gap: 14px;
+      margin: 0 0 18px; padding: 12px 16px;
+      border: 1px solid var(--warn-line); border-left: 3px solid var(--warn);
+      background: var(--warn-bg); border-radius: var(--r-lg);
+    }
+    .fb-lock { color: var(--warn); flex-shrink: 0; }
+    .fb-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .fb-text strong { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--warn); }
+    .fb-text span { font-size: 12px; color: var(--ink-2); }
+    .fb-text b { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+    .fb-resume {
+      margin-left: auto; flex-shrink: 0;
+      height: 34px; padding: 0 16px;
+      border: 1px solid var(--pos); background: var(--pos); color: #fff;
+      border-radius: var(--r-sm); cursor: pointer;
+      font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
+      transition: opacity .12s, transform .04s;
+    }
+    .fb-resume:hover { opacity: .9; }
+    .fb-resume:active { transform: translateY(1px); }
+
     .ci-note {
       margin: 0 0 16px; padding: 9px 13px; border-radius: var(--r);
       background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn);
@@ -521,6 +578,9 @@ export class ArbitrageComponent {
   settlement = input<Settlement>('H24');
   // true = los datos ya son del plazo real (IOL t0). false = fallback data912 → se estima el CI.
   ciIsReal = input<boolean>(false);
+  // Estado de pausa global (refresh congelado). Two-way con el shell.
+  paused = input<boolean>(false);
+  pausedChange = output<boolean>();
 
   // --- Internal signals ---
   amountArs = signal<number>(DEFAULTS.amountArs);
@@ -596,6 +656,31 @@ export class ArbitrageComponent {
       commissionPct: this.commissionPct(),
     });
   });
+
+  // Elegir manualmente un CEDEAR congela la página (pausa el refresh) para poder
+  // ir al broker y operar sin que la selección/precios cambien.
+  onManualBuy(value: string | null) {
+    const t = value || null;
+    this.manualBuy.set(t);
+    if (t) this.pausedChange.emit(true);
+  }
+
+  onManualSell(value: string | null) {
+    const t = value || null;
+    this.manualSell.set(t);
+    if (t) this.pausedChange.emit(true);
+  }
+
+  freeze() {
+    this.pausedChange.emit(true);
+  }
+
+  // Volver a vivo: descongelar y soltar la selección manual (vuelve al auto-mejor).
+  unfreeze() {
+    this.manualBuy.set(null);
+    this.manualSell.set(null);
+    this.pausedChange.emit(false);
+  }
 
   fmt(v: number | null | undefined, dec = 2): string {
     if (v == null || !isFinite(v)) return '–';

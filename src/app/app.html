@@ -106,6 +106,8 @@
       [dollarType]="activeArbTab()!.dollarType"
       [settlement]="activeArbTab()!.settlement"
       [ciIsReal]="activeCiIsReal()"
+      [paused]="paused()"
+      (pausedChange)="paused.set($event)"
     />
   } @else {
     @if (errors()[activePanel()]) {
