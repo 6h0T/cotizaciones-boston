@@ -109,12 +109,32 @@ export function buildPairs(
 }
 
 /**
- * Best place to BUY dollars: the pair with the LOWEST dolarVenta
- * (cheapest rate at which you take dollars out). `null` if no pairs.
+ * Effective USD volume available on the BUY leg of a pair: buy the CEDEAR in
+ * ARS (bounded by qArsAsk), sell it in USD (bounded by qUsdBid) — the smaller
+ * depth valued at usdBid (the dollars you receive).
  */
-export function bestBuy(pairs: ArbPair[]): ArbPair | null {
+export function buyLegUsd(p: ArbPair): number {
+  return Math.min(p.qArsAsk, p.qUsdBid) * p.usdBid;
+}
+
+/**
+ * Effective USD volume available on the SELL leg of a pair: buy the CEDEAR in
+ * USD (bounded by qUsdAsk), sell it in ARS (bounded by qArsBid) — the smaller
+ * depth valued at usdAsk (the dollars you deploy).
+ */
+export function sellLegUsd(p: ArbPair): number {
+  return Math.min(p.qUsdAsk, p.qArsBid) * p.usdAsk;
+}
+
+/**
+ * Best place to BUY dollars: the pair with the LOWEST dolarVenta
+ * (cheapest rate at which you take dollars out), considering ONLY pairs whose
+ * buy-leg effective USD volume is at least `minUsdVol`. `null` if none qualify.
+ */
+export function bestBuy(pairs: ArbPair[], minUsdVol = 0): ArbPair | null {
   let best: ArbPair | null = null;
   for (const p of pairs) {
+    if (buyLegUsd(p) < minUsdVol) continue;
     if (best === null || p.dolarVenta < best.dolarVenta) best = p;
   }
   return best;
@@ -122,11 +142,13 @@ export function bestBuy(pairs: ArbPair[]): ArbPair | null {
 
 /**
  * Best place to SELL dollars: the pair with the HIGHEST dolarCompra
- * (best rate at which you bring dollars in). `null` if no pairs.
+ * (best rate at which you bring dollars in), considering ONLY pairs whose
+ * sell-leg effective USD volume is at least `minUsdVol`. `null` if none qualify.
  */
-export function bestSell(pairs: ArbPair[]): ArbPair | null {
+export function bestSell(pairs: ArbPair[], minUsdVol = 0): ArbPair | null {
   let best: ArbPair | null = null;
   for (const p of pairs) {
+    if (sellLegUsd(p) < minUsdVol) continue;
     if (best === null || p.dolarCompra > best.dolarCompra) best = p;
   }
   return best;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CedearRow } from './market.config';
-import { bestBuy, bestSell, buildPairs, computeTrade } from './arb-engine';
+import { bestBuy, bestSell, buildPairs, computeTrade, buyLegUsd, sellLegUsd } from './arb-engine';
 
 /** Minimal CedearRow factory with sane defaults. */
 function row(symbol: string, p: Partial<CedearRow> = {}): CedearRow {
@@ -165,6 +165,45 @@ describe('bestBuy / bestSell', () => {
   it('returns null for empty input', () => {
     expect(bestBuy([])).toBeNull();
     expect(bestSell([])).toBeNull();
+  });
+});
+
+describe('minimum USD volume filter', () => {
+  // AAPL: cheapest dollar but tiny depth. KO: pricier dollar but deep book.
+  const pairs = buildPairs(
+    [
+      row('AAPL', { px_bid: 14520, px_ask: 14580, q_bid: 5, q_ask: 4 }),
+      row('AAPLD', { px_bid: 10, px_ask: 10.02, q_bid: 3, q_ask: 3 }),
+      row('KO', { px_bid: 15020, px_ask: 15080, q_bid: 1000, q_ask: 1000 }),
+      row('KOD', { px_bid: 10, px_ask: 10.02, q_bid: 1000, q_ask: 1000 }),
+    ],
+    { suffix: 'D', settlement: 'H24', ciAdjustPct: 0.3 },
+  );
+  const aapl = pairs.find((p) => p.base === 'AAPL')!;
+  const ko = pairs.find((p) => p.base === 'KO')!;
+
+  it('computes leg USD volume from the binding depth', () => {
+    // AAPL buy leg: min(qArsAsk 4, qUsdBid 3) * usdBid 10 = 30
+    expect(buyLegUsd(aapl)).toBeCloseTo(Math.min(4, 3) * 10, 6);
+    expect(sellLegUsd(ko)).toBeCloseTo(Math.min(1000, 1000) * 10.02, 6);
+  });
+
+  it('without a minimum, bestBuy picks the cheapest even if illiquid', () => {
+    expect(bestBuy(pairs)?.base).toBe('AAPL');
+  });
+
+  it('with a minimum, bestBuy skips low-volume pairs for the best that qualifies', () => {
+    // AAPL buy vol = 30 USD < 500 → excluded; KO qualifies.
+    expect(bestBuy(pairs, 500)?.base).toBe('KO');
+  });
+
+  it('with a minimum, bestSell skips low-volume pairs', () => {
+    expect(bestSell(pairs, 500)?.base).toBe('KO');
+  });
+
+  it('returns null when no pair meets the minimum', () => {
+    expect(bestBuy(pairs, 1_000_000)).toBeNull();
+    expect(bestSell(pairs, 1_000_000)).toBeNull();
   });
 });
 

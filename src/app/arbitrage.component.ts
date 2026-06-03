@@ -13,7 +13,7 @@ import {
   settlementLabel,
 } from './market.config';
 
-import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
+import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } from './arb-engine';
 
 @Component({
   selector: 'app-arbitrage',
@@ -47,6 +47,17 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
           />
         </label>
 
+        <label class="monto vol">
+          Vol. mín USD
+          <input
+            type="number"
+            min="0"
+            step="100"
+            [ngModel]="minUsdVol()"
+            (ngModelChange)="minUsdVol.set(+$event >= 0 ? +$event : 0)"
+          />
+        </label>
+
         @if (settlement() === 'CI' && !ciIsReal()) {
           <label class="monto ci">
             Ajuste CI %
@@ -59,7 +70,11 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
           </label>
         }
 
-        <span class="pair-count">{{ pairs().length }} pares disponibles</span>
+        <span class="pair-count">
+          {{ buyOptions().length }} compra · {{ sellOptions().length }} venta
+          con vol ≥ {{ fmt(minUsdVol(), 0) }} USD
+          <span class="pc-total">/ {{ pairs().length }} totales</span>
+        </span>
       </div>
 
       @if (settlement() === 'CI') {
@@ -77,6 +92,16 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
       @if (pairs().length === 0) {
         <div class="empty">Esperando datos de CEDEARs…</div>
       } @else {
+        @if (!selectedBuy() || !selectedSell()) {
+          <div class="vol-warn">
+            Ningún par con volumen efectivo ≥ {{ fmt(minUsdVol(), 0) }} USD en
+            @if (!selectedBuy() && !selectedSell()) { ambas puntas }
+            @else if (!selectedBuy()) { la punta de compra }
+            @else { la punta de venta }.
+            Bajá el «Vol. mín USD» para ver más opciones.
+          </div>
+        }
+
         <!-- Auto-selección prominente -->
         <div class="auto-banner">
           @if (selectedBuy(); as b) {
@@ -84,6 +109,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
               <span class="auto-action">Comprás CEDEAR</span>
               <span class="auto-ticker">{{ b.base }}</span>
               <span class="auto-rate">$ {{ fmt(b.dolarVenta, 2) }} / USD</span>
+              <span class="auto-vol">vol {{ fmt(volBuy(b), 0) }} USD</span>
             </div>
           }
           @if (selectedSell(); as s) {
@@ -91,6 +117,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
               <span class="auto-action">Vendés CEDEAR</span>
               <span class="auto-ticker">{{ s.base }}</span>
               <span class="auto-rate">$ {{ fmt(s.dolarCompra, 2) }} / USD</span>
+              <span class="auto-vol">vol {{ fmt(volSell(s), 0) }} USD</span>
             </div>
           }
         </div>
@@ -266,6 +293,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
                 <th class="num">USD ask</th>
                 <th class="num">$ Compra (vendo USD)</th>
                 <th class="num">$ Venta (compro USD)</th>
+                <th class="num">Vol USD compra</th>
+                <th class="num">Vol USD venta</th>
                 <th class="num">Spread %</th>
               </tr>
             </thead>
@@ -282,6 +311,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
                   <td class="num">{{ fmt(p.usdAsk, 4) }}</td>
                   <td class="num">{{ fmt(p.dolarCompra, 2) }}</td>
                   <td class="num">{{ fmt(p.dolarVenta, 2) }}</td>
+                  <td class="num" [class.vol-lo]="volBuy(p) < minUsdVol()">{{ fmt(volBuy(p), 0) }}</td>
+                  <td class="num" [class.vol-lo]="volSell(p) < minUsdVol()">{{ fmt(volSell(p), 0) }}</td>
                   <td class="num">{{ fmt(p.spreadPct, 3) }}</td>
                 </tr>
               }
@@ -321,10 +352,19 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
     .monto.ci input { width: 100px; }
     .monto.ci { color: var(--warn); }
     .monto.ci input { border-color: var(--warn-line); }
+    .monto.vol input { width: 100px; }
     .pair-count {
-      margin-left: auto; align-self: center;
-      font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+      margin-left: auto; align-self: center; text-align: right; line-height: 1.5;
+      font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
     }
+    .pc-total { color: var(--ink-3); }
+
+    .vol-warn {
+      margin: 0 0 16px; padding: 9px 13px; border-radius: var(--r);
+      background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn);
+      font-size: 12px;
+    }
+    td.vol-lo { color: var(--ink-3); }
 
     .ci-note {
       margin: 0 0 16px; padding: 9px 13px; border-radius: var(--r);
@@ -342,7 +382,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
       background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden;
     }
     .auto-pill {
-      display: flex; align-items: baseline; gap: 10px;
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
       padding: 14px 16px; position: relative;
     }
     .auto-pill.buy { border-left: 3px solid var(--accent); }
@@ -359,6 +399,10 @@ import { buildPairs, bestBuy, bestSell, computeTrade } from './arb-engine';
     .auto-pill .auto-rate {
       margin-left: auto; font-family: var(--font-mono); font-size: 14px; font-weight: 600;
       color: var(--ink-2);
+    }
+    .auto-pill .auto-vol {
+      flex-basis: 100%; text-align: right;
+      font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
     }
 
     .grid {
@@ -482,12 +526,16 @@ export class ArbitrageComponent {
   amountArs = signal<number>(DEFAULTS.amountArs);
   commissionPct = signal<number>(DEFAULTS.commissionPct);
   ciAdjustPct = signal<number>(DEFAULTS.ciAdjustPct);
+  // Volumen efectivo mínimo (USD) por punta para considerar un par operable.
+  minUsdVol = signal<number>(DEFAULTS.minUsdVol);
   // Manual override of auto-selection (null = follow automatic best)
   manualBuy = signal<string | null>(null);
   manualSell = signal<string | null>(null);
 
-  // Re-expose helper for the template
+  // Re-expose helpers for the template
   settlementLabel = settlementLabel;
+  volBuy = buyLegUsd;
+  volSell = sellLegUsd;
 
   // --- Pairs from shared engine ---
   pairs = computed<ArbPair[]>(() =>
@@ -498,27 +546,35 @@ export class ArbitrageComponent {
     })
   );
 
+  // Solo los pares con volumen efectivo suficiente en cada punta.
   buyOptions = computed(() =>
-    [...this.pairs()].sort((a, b) => a.dolarVenta - b.dolarVenta)
+    this.pairs()
+      .filter(p => buyLegUsd(p) >= this.minUsdVol())
+      .sort((a, b) => a.dolarVenta - b.dolarVenta)
   );
 
   sellOptions = computed(() =>
-    [...this.pairs()].sort((a, b) => b.dolarCompra - a.dolarCompra)
+    this.pairs()
+      .filter(p => sellLegUsd(p) >= this.minUsdVol())
+      .sort((a, b) => b.dolarCompra - a.dolarCompra)
   );
 
-  // Table: ordered by dolarVenta asc
-  pairsSorted = computed(() =>
-    [...this.pairs()].sort((a, b) => a.dolarVenta - b.dolarVenta)
-  );
+  // Tabla: pares con al menos una punta operable al mínimo, ordenados por dolarVenta.
+  pairsSorted = computed(() => {
+    const min = this.minUsdVol();
+    return this.pairs()
+      .filter(p => buyLegUsd(p) >= min || sellLegUsd(p) >= min)
+      .sort((a, b) => a.dolarVenta - b.dolarVenta);
+  });
 
-  // --- Auto-selection (always populated; manual override optional) ---
+  // --- Auto-selection: mejor cotización CON volumen ≥ mínimo ----------------
   selectedBuy = computed<ArbPair | null>(() => {
     const m = this.manualBuy();
     if (m) {
       const found = this.pairs().find(p => p.base === m);
       if (found) return found;
     }
-    return bestBuy(this.pairs());
+    return bestBuy(this.pairs(), this.minUsdVol());
   });
 
   selectedSell = computed<ArbPair | null>(() => {
@@ -527,7 +583,7 @@ export class ArbitrageComponent {
       const found = this.pairs().find(p => p.base === m);
       if (found) return found;
     }
-    return bestSell(this.pairs());
+    return bestSell(this.pairs(), this.minUsdVol());
   });
 
   // --- Trade result from shared engine (gross + net + real volume) ---

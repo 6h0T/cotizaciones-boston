@@ -72,6 +72,7 @@ export const DEFAULTS = {
   commissionPct: 2,   // gastos/comisión estándar round-trip
   ciAdjustPct: 0.30,  // ajuste para estimar CI desde 24hs
   amountArs: 1_000_000,
+  minUsdVol: 1000,    // volumen efectivo mínimo (USD) por punta para considerar un par
 } as const;
 
 // ── Fuentes de datos de CEDEARs ─────────────────────────────────────────────
