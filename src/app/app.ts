@@ -72,6 +72,9 @@ export class App implements OnInit, OnDestroy {
   // true = datos reales IOL para ese plazo; false = fallback data912.
   iolSource = signal<{ t0: boolean; t1: boolean }>({ t0: false, t1: false });
 
+  // Dropdown "Mercados" (agrupa los paneles de datos).
+  menuOpen = signal(false);
+
   private sub?: Subscription;
 
   // ArbTab activa, o null si la pestaña activa es una data tab.
@@ -93,6 +96,19 @@ export class App implements OnInit, OnDestroy {
     if (!tab) return false;
     return tab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
   });
+
+  // Panel de datos activo (null si la pestaña activa es de arbitraje).
+  activeDataPanel = computed<PanelDef | null>(() =>
+    this.panels.find((p) => p.id === this.activePanel()) ?? null
+  );
+
+  // Etiqueta y caption de estado del panel activo (para la toolbar).
+  activeTitle = computed<string>(() => {
+    const arb = this.activeArbTab();
+    if (arb) return arb.label;
+    return this.activeDataPanel()?.label ?? '';
+  });
+  activeStatus = computed<string>(() => this.panelStatus(this.activePanel()));
 
   activeRows = computed(() => {
     const rows = this.data()[this.activePanel()] ?? [];
@@ -198,6 +214,15 @@ export class App implements OnInit, OnDestroy {
   setActive(id: string) {
     this.activePanel.set(id);
     this.filter.set('');
+    this.menuOpen.set(false);
+  }
+
+  toggleMenu() {
+    this.menuOpen.update((v) => !v);
+  }
+
+  closeMenu() {
+    this.menuOpen.set(false);
   }
 
   downloadXLSX() {

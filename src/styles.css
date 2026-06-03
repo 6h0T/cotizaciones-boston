@@ -1,1 +1,73 @@
-/* You can add global styles to this file, and also import other style files */
+/* ───────────────────────────────────────────────────────────────────────────
+   Sistema de diseño — Cotizaciones Boston
+   Estética: terminal financiera, densa y funcional. Base neutra zinc, un único
+   acento, semántica verde/rojo para P&L, números en monospace. Sin púrpura "AI",
+   sin glows, sin cajas redondeadas de relleno.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --font-ui:      'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Manrope', 'Geist', system-ui, sans-serif; /* títulos/marca — igual que boston-ar */
+  --font-mono:    'Geist Mono', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Superficies */
+  --bg:        #f7f7f8;
+  --surface:   #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #ececee;
+
+  /* Tinta */
+  --ink:   #18181b;
+  --ink-2: #52525b;
+  --ink-3: #8b8b93;
+
+  /* Líneas */
+  --line:   #e7e7ea;
+  --line-2: #d6d6da;
+
+  /* Acento único (azul eléctrico, usado con moderación) */
+  --accent:    #2563eb;
+  --accent-2:  #1d4ed8;
+  --accent-sf: #eff4ff;
+
+  /* Semántica P&L */
+  --pos:    #15803d;  --pos-bg: #f0fdf4;  --pos-line: #bbf7d0;
+  --neg:    #b91c1c;  --neg-bg: #fef2f2;  --neg-line: #fecaca;
+  --warn:   #b45309;  --warn-bg:#fffbeb;  --warn-line:#fde68a;
+
+  /* Radios y sombra */
+  --r-sm: 6px;
+  --r:    8px;
+  --r-lg: 12px;
+  --shadow:    0 1px 2px rgba(24,24,27,.04), 0 10px 26px -14px rgba(24,24,27,.14);
+  --shadow-sm: 0 1px 2px rgba(24,24,27,.05);
+
+  --toolbar-h: 52px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Números tabulares y monospace donde importe la grilla numérica */
+.mono, .num, td.num, th.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+::selection { background: var(--accent-sf); }
+
+/* Scrollbars discretas (acorde a un panel de datos) */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }

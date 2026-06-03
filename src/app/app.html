@@ -1,12 +1,55 @@
-<header class="topbar">
-  <div class="brand">
-    <h1>Cotizaciones Boston</h1>
-    <span class="sub">Mercado argentino en vivo · data912 + dolarapi</span>
+<header class="toolbar">
+  <div class="brand" title="Boston Asset Management">
+    <span class="brand-dot"></span>
+    <span class="brand-mono">BAM</span>
   </div>
 
+  <nav class="nav">
+    <!-- Las 4 de arbitraje: control segmentado primario -->
+    <div class="seg">
+      @for (t of arbTabs; track t.id) {
+        <button
+          class="seg-btn"
+          [class.on]="activePanel() === t.id"
+          (click)="setActive(t.id)"
+        >{{ t.short }}</button>
+      }
+    </div>
+
+    <!-- Paneles de datos colapsados en un dropdown -->
+    <div class="dropdown">
+      <button
+        class="seg-btn drop-trigger"
+        [class.on]="!activeArbTab()"
+        (click)="toggleMenu()"
+      >
+        {{ activeArbTab() ? 'Mercados' : activeDataPanel()?.label }}
+        <svg class="chev" [class.up]="menuOpen()" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+
+      @if (menuOpen()) {
+        <div class="menu">
+          @for (p of panels; track p.id) {
+            <button
+              class="menu-item"
+              [class.on]="activePanel() === p.id"
+              (click)="setActive(p.id)"
+            >
+              <span class="mi-label">{{ p.label }}</span>
+              <span class="mi-status" [class.err]="errors()[p.id]">{{ panelStatus(p.id) }}</span>
+            </button>
+          }
+        </div>
+      }
+    </div>
+  </nav>
+
   <div class="controls">
-    <label class="interval">
-      Refrescar cada
+    <button class="icon-btn" (click)="refreshAll()" [disabled]="loading()" title="Refrescar ahora">
+      <svg [class.spin]="loading()" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+    </button>
+
+    <label class="rate" title="Intervalo de refresco">
       <input
         type="number"
         min="3"
@@ -14,41 +57,47 @@
         [ngModel]="intervalSec()"
         (ngModelChange)="intervalSec.set($event); onIntervalChange()"
       />
-      seg
+      <span>s</span>
     </label>
 
-    <button class="btn" (click)="refreshAll()" [disabled]="loading()">
-      {{ loading() ? 'Actualizando…' : 'Refrescar ahora' }}
+    <button class="toggle" [class.paused]="paused()" (click)="togglePause()">
+      <span class="live-dot" [class.off]="paused()"></span>
+      {{ paused() ? 'Pausado' : 'En vivo' }}
     </button>
 
-    <button class="btn pause" (click)="togglePause()" [class.paused]="paused()">
-      {{ paused() ? '▶ Reanudar' : '⏸ Pausar' }}
+    <button class="export" (click)="downloadXLSX()" title="Descargar snapshot XLSX">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      XLSX
     </button>
-
-    <button class="btn primary" (click)="downloadXLSX()">⬇ Descargar XLSX</button>
   </div>
 </header>
 
-<nav class="tabs">
-  @for (t of navTabs; track t.id) {
-    <button
-      class="tab"
-      [class.active]="activePanel() === t.id"
-      [class.feature]="t.kind === 'arb'"
-      (click)="setActive(t.id)"
-    >
-      @if (t.kind === 'arb') {
-        <span class="label">
-          <span class="spark">◆</span>
-          {{ t.short }}
-        </span>
-      } @else {
-        <span class="label">{{ t.label }}</span>
-      }
-      <span class="status" [class.err]="errors()[t.id]">{{ panelStatus(t.id) }}</span>
-    </button>
+@if (menuOpen()) {
+  <div class="backdrop" (click)="closeMenu()"></div>
+}
+
+<div class="subbar">
+  <div class="crumb">
+    <strong>{{ activeTitle() }}</strong>
+    <span class="status-cap" [class.err]="errors()[activePanel()]">{{ activeStatus() }}</span>
+    @if (paused()) {
+      <span class="pill warn">Snapshot congelado</span>
+    }
+  </div>
+
+  @if (!activeArbTab()) {
+    <div class="subbar-tools">
+      <input
+        class="search"
+        type="text"
+        placeholder="Filtrar…"
+        [ngModel]="filter()"
+        (ngModelChange)="filter.set($event)"
+      />
+      <span class="count num">{{ activeRows().length }}</span>
+    </div>
   }
-</nav>
+</div>
 
 <section class="panel">
   @if (activeArbTab()) {
@@ -59,22 +108,8 @@
       [ciIsReal]="activeCiIsReal()"
     />
   } @else {
-    <div class="panel-head">
-      <input
-        class="search"
-        type="text"
-        placeholder="Filtrar…"
-        [ngModel]="filter()"
-        (ngModelChange)="filter.set($event)"
-      />
-      <span class="count">{{ activeRows().length }} filas</span>
-      @if (paused()) {
-        <span class="badge paused">⏸ Pausado — snapshot congelado</span>
-      }
-    </div>
-
     @if (errors()[activePanel()]) {
-      <div class="error-box">Error: {{ errors()[activePanel()] }}</div>
+      <div class="error-box">No se pudo cargar: {{ errors()[activePanel()] }}</div>
     }
 
     @if (activeRows().length) {
@@ -83,7 +118,7 @@
           <thead>
             <tr>
               @for (col of activeColumns(); track col) {
-                <th>{{ col }}</th>
+                <th [class.num]="col !== 'symbol' && col !== 'ticker'">{{ col }}</th>
               }
             </tr>
           </thead>
@@ -91,7 +126,7 @@
             @for (row of activeRows(); track $index) {
               <tr>
                 @for (col of activeColumns(); track col) {
-                  <td>{{ fmt(row[col]) }}</td>
+                  <td [class.num]="col !== 'symbol' && col !== 'ticker'">{{ fmt(row[col]) }}</td>
                 }
               </tr>
             }
@@ -99,11 +134,11 @@
         </table>
       </div>
     } @else {
-      <div class="empty">Cargando o sin datos…</div>
+      <div class="empty">Sin datos para mostrar.</div>
     }
   }
 </section>
 
 <footer class="foot">
-  <span>Snapshot al pausar/descargar — los datos quedan congelados.</span>
+  <span>Fuente: IOL (plazo real t0/t1) · data912 fallback · dolarapi. Snapshot congelado al pausar o descargar.</span>
 </footer>
