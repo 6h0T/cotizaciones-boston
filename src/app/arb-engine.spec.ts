@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { CedearRow } from './market.config';
-import { bestBuy, bestSell, buildPairs, computeTrade, buyLegUsd, sellLegUsd } from './arb-engine';
+import {
+  bestBuy,
+  bestSell,
+  buildPairs,
+  computeTrade,
+  buyLegUsd,
+  sellLegUsd,
+  scanOpportunities,
+  nextAlertState,
+} from './arb-engine';
+import type { MonitorSettings } from './arb-engine';
 
 /** Minimal CedearRow factory with sane defaults. */
 function row(symbol: string, p: Partial<CedearRow> = {}): CedearRow {
@@ -276,5 +286,100 @@ describe('computeTrade', () => {
     expect(
       computeTrade(buy, sell, { amountArs: -100, commissionPct: 0 }),
     ).toBeNull();
+  });
+});
+
+// ── Helpers para scanOpportunities ──────────────────────────────────────────
+
+/**
+ * Construye dos tickers (AAPL/KO) con dólares implícitos muy distintos para
+ * que el round-trip dé netPct claramente positivo incluso con comisión cero.
+ * AAPL: dolarVenta ≈ 14580/10 = 1458, dolarCompra ≈ 14520/10.02 ≈ 1449.1
+ * KO:   dolarVenta ≈ 16080/10 = 1608, dolarCompra ≈ 16020/10.02 ≈ 1599.4
+ *
+ * Round-trip: comprar AAPL (barato), vender KO (caro) → grossPct ≈ 10%.
+ */
+function mepT1Rows(): CedearRow[] {
+  return [
+    row('AAPL', { px_bid: 14520, px_ask: 14580, q_bid: 500, q_ask: 500 }),
+    row('AAPLD', { px_bid: 10,    px_ask: 10.02, q_bid: 500, q_ask: 500 }),
+    row('KO',   { px_bid: 16020,  px_ask: 16080, q_bid: 500, q_ask: 500 }),
+    row('KOD',  { px_bid: 10,     px_ask: 10.02, q_bid: 500, q_ask: 500 }),
+  ];
+}
+
+/** Filas vacías — ninguna pestaña las debería incluir. */
+const emptyRows: CedearRow[] = [];
+
+const defaultSettings: MonitorSettings = {
+  commissionPct: 0,
+  minUsdVol: 0,
+  ciAdjustPct: 0.3,
+};
+
+describe('scanOpportunities', () => {
+  it('devuelve la pestaña mep-24 con netPct > 2 y campos correctos', () => {
+    const t1 = mepT1Rows();
+    const opps = scanOpportunities(emptyRows, t1, { t0: false, t1: true }, defaultSettings);
+
+    const mep24 = opps.find((o) => o.tabId === 'mep-24');
+    expect(mep24).toBeDefined();
+    expect(mep24!.netPct).toBeGreaterThan(2);
+    expect(mep24!.buyBase).toBe('AAPL');
+    expect(mep24!.sellBase).toBe('KO');
+    expect(mep24!.ciEstimated).toBe(false);
+    expect(mep24!.dollarType).toBe('MEP');
+    expect(mep24!.settlement).toBe('H24');
+    expect(mep24!.label).toBe('MEP 24h');
+  });
+
+  it('con minUsdVol enorme no devuelve ninguna pestaña (respeta liquidez mínima)', () => {
+    const t1 = mepT1Rows();
+    const highVol: MonitorSettings = { ...defaultSettings, minUsdVol: 1_000_000 };
+    const opps = scanOpportunities(emptyRows, t1, { t0: false, t1: true }, highVol);
+    expect(opps).toHaveLength(0);
+  });
+
+  it('ciEstimated=true cuando settlement=CI y iolSource.t0=false', () => {
+    // Para CI necesitamos las filas en t0Rows; usamos los mismos datos.
+    const t0 = mepT1Rows();
+    const opps = scanOpportunities(t0, emptyRows, { t0: false, t1: false }, defaultSettings);
+
+    const mepCi = opps.find((o) => o.tabId === 'mep-ci');
+    expect(mepCi).toBeDefined();
+    expect(mepCi!.ciEstimated).toBe(true);
+  });
+
+  it('ciEstimated=false cuando settlement=CI y iolSource.t0=true', () => {
+    const t0 = mepT1Rows();
+    const opps = scanOpportunities(t0, emptyRows, { t0: true, t1: false }, defaultSettings);
+
+    const mepCi = opps.find((o) => o.tabId === 'mep-ci');
+    expect(mepCi).toBeDefined();
+    expect(mepCi!.ciEstimated).toBe(false);
+  });
+});
+
+describe('nextAlertState', () => {
+  const opts = { fire: 2, rearm: 1.9 };
+
+  it('dispara al cruzar el umbral: prevArmed=true, netPct=2.5 → fire=true', () => {
+    expect(nextAlertState(true, 2.5, opts)).toEqual({ armed: false, fire: true });
+  });
+
+  it('silencio mientras sigue activa: prevArmed=false, netPct=2.5 → fire=false', () => {
+    expect(nextAlertState(false, 2.5, opts)).toEqual({ armed: false, fire: false });
+  });
+
+  it('re-arma bajo el umbral: prevArmed=false, netPct=1.5 → armed=true', () => {
+    expect(nextAlertState(false, 1.5, opts)).toEqual({ armed: true, fire: false });
+  });
+
+  it('histéresis: no re-arma en la banda [rearm, fire): netPct=1.95 → armed=false', () => {
+    expect(nextAlertState(false, 1.95, opts)).toEqual({ armed: false, fire: false });
+  });
+
+  it('permanece armado sin disparar cuando netPct < fire: prevArmed=true, netPct=1.0', () => {
+    expect(nextAlertState(true, 1.0, opts)).toEqual({ armed: true, fire: false });
   });
 });

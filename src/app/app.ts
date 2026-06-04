@@ -7,6 +7,8 @@ import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, iolCedearsUrl } from './market.config';
+import { scanOpportunities, nextAlertState } from './arb-engine';
+import type { ArbOpportunity, MonitorSettings } from './arb-engine';
 
 interface PanelDef {
   id: string;
@@ -27,6 +29,9 @@ const PANELS: PanelDef[] = [
   { id: 'usa',          label: 'Acciones USA',  url: '/api/data912/live/usa_stocks' },
   { id: 'dolar',        label: 'Dólar',         url: '/api/dolar/v1/dolares' },
 ];
+
+const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
+const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
 
 // Entrada unificada de la nav: arb tabs primero, luego data tabs.
 type NavTab =
@@ -74,6 +79,17 @@ export class App implements OnInit, OnDestroy {
 
   // Dropdown "Mercados" (agrupa los paneles de datos).
   menuOpen = signal(false);
+
+  // Monitor de oportunidades de arbitraje.
+  alertsEnabled = signal<boolean>(true);
+  activeAlerts = signal<ArbOpportunity[]>([]);
+  private armed: Record<string, boolean> = {};      // por tabId; true = listo para disparar
+  private audioCtx?: AudioContext;
+  private monitorSettings: MonitorSettings = {
+    commissionPct: DEFAULTS.commissionPct,
+    minUsdVol: DEFAULTS.minUsdVol,
+    ciAdjustPct: DEFAULTS.ciAdjustPct,
+  };
 
   private sub?: Subscription;
 
@@ -201,6 +217,7 @@ export class App implements OnInit, OnDestroy {
       this.errors.set(errAcc);
       this.lastUpdated.set(tsAcc);
       this.loading.set(false);
+      this.runMonitor();
     });
   }
 
@@ -287,5 +304,61 @@ export class App implements OnInit, OnDestroy {
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
     return `hace ${sec}s`;
+  }
+
+  // --- Monitor de alertas ---
+
+  private runMonitor() {
+    const opps = scanOpportunities(
+      this.cedearsT0(), this.cedearsT1(), this.iolSource(), this.monitorSettings
+    );
+    const byTab = new Map(opps.map(o => [o.tabId, o] as const));
+    let fired = false;
+    for (const tab of ARB_TABS) {
+      const net = byTab.get(tab.id)?.netPct ?? Number.NEGATIVE_INFINITY;
+      const prev = this.armed[tab.id] ?? true;
+      const s = nextAlertState(prev, net, { fire: ALERT_FIRE, rearm: ALERT_REARM });
+      this.armed[tab.id] = s.armed;
+      if (s.fire) fired = true;
+    }
+    this.activeAlerts.set(
+      opps.filter(o => o.netPct >= ALERT_FIRE).sort((a, b) => b.netPct - a.netPct)
+    );
+    if (fired && this.alertsEnabled()) this.playBeep();
+  }
+
+  toggleAlerts() {
+    const next = !this.alertsEnabled();
+    this.alertsEnabled.set(next);
+    if (next) this.initAudio();   // el click cuenta como gesto → habilita el audio
+  }
+
+  private initAudio() {
+    try {
+      if (!this.audioCtx) {
+        const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (Ctor) this.audioCtx = new Ctor();
+      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+    } catch { /* audio no disponible: ignorar */ }
+  }
+
+  private playBeep() {
+    try {
+      this.initAudio();
+      const ctx = this.audioCtx;
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      const t = ctx.currentTime;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    } catch { /* ignorar */ }
   }
 }

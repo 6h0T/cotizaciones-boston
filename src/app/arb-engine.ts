@@ -1,9 +1,12 @@
 import type {
   ArbPair,
+  ArbTab,
   CedearRow,
+  DollarType,
   Settlement,
   TradeResult,
 } from './market.config';
+import { ARB_TABS, SUFFIX } from './market.config';
 
 /**
  * Lower/upper sanity bounds for a plausible ARS/USD rate. Anything outside this
@@ -219,4 +222,108 @@ export function computeTrade(
     tradeableArs,
     tradeableUsd,
   };
+}
+
+// ── Tipos para el monitor de oportunidades ──────────────────────────────────
+
+/** Configuración del escáner de oportunidades y la máquina de alertas. */
+export interface MonitorSettings {
+  commissionPct: number;  // % de comisión total round-trip
+  minUsdVol: number;      // volumen efectivo mínimo USD por punta
+  ciAdjustPct: number;    // ajuste para estimar CI cuando no hay IOL
+}
+
+/** Una oportunidad de arbitraje detectada en una pestaña concreta. */
+export interface ArbOpportunity {
+  tabId: string;          // ArbTab.id, ej. 'mep-24'
+  label: string;          // ArbTab.short, ej. 'MEP 24h'
+  dollarType: DollarType;
+  settlement: Settlement;
+  netPct: number;         // % neto del mejor round-trip de esa pestaña
+  buyBase: string;        // ticker a comprar
+  sellBase: string;       // ticker a vender
+  tradeableUsd: number;   // volumen operable real (USD)
+  ciEstimated: boolean;   // true si el CI se estimó (sin IOL real)
+}
+
+/**
+ * Escanea las 4 pestañas de ARB_TABS y devuelve una entrada por pestaña que
+ * tenga al menos un par operable con suficiente liquidez.
+ *
+ * Lógica por pestaña:
+ *  - Se toman las filas del plazo correspondiente (t0Rows para CI, t1Rows para H24).
+ *  - Si no hay IOL real para ese plazo, el CI se estima desde 24hs ampliando el
+ *    spread en `ciAdjustPct` (la misma convención que usa buildPairs internamente).
+ *  - Se busca el mejor par comprador y vendedor con liquidez mínima de minUsdVol.
+ *  - Si alguno falta, esa pestaña no aporta (se omite silenciosamente).
+ *
+ * Función pura: no modifica su entrada ni produce efectos secundarios.
+ */
+export function scanOpportunities(
+  t0Rows: CedearRow[],
+  t1Rows: CedearRow[],
+  iolSource: { t0: boolean; t1: boolean },
+  settings: MonitorSettings,
+): ArbOpportunity[] {
+  const result: ArbOpportunity[] = [];
+
+  for (const tab of ARB_TABS) {
+    const rows = tab.settlement === 'CI' ? t0Rows : t1Rows;
+    const ciReal = tab.settlement === 'CI' ? iolSource.t0 : iolSource.t1;
+    const ciEstimated = tab.settlement === 'CI' && !ciReal;
+    const ciAdjustPct = ciEstimated ? settings.ciAdjustPct : 0;
+
+    const pairs = buildPairs(rows, {
+      suffix: SUFFIX[tab.dollarType],
+      settlement: tab.settlement,
+      ciAdjustPct,
+    });
+
+    const buy = bestBuy(pairs, settings.minUsdVol);
+    const sell = bestSell(pairs, settings.minUsdVol);
+    if (!buy || !sell) continue;
+
+    const trade = computeTrade(buy, sell, {
+      amountArs: 1_000_000,
+      commissionPct: settings.commissionPct,
+    });
+    if (!trade) continue;
+
+    result.push({
+      tabId: tab.id,
+      label: tab.short,
+      dollarType: tab.dollarType,
+      settlement: tab.settlement,
+      netPct: trade.netPct,
+      buyBase: buy.base,
+      sellBase: sell.base,
+      tradeableUsd: trade.tradeableUsd,
+      ciEstimated,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Máquina de estados pura para detección de oportunidades por flanco con histéresis.
+ *
+ * Estados:
+ *  - `armed = true`:  en reposo, listo para disparar al cruzar `fire` hacia arriba.
+ *  - `armed = false`: disparado; permanece silencioso mientras netPct >= rearm.
+ *
+ * Histéresis: `rearm` (ej. 1.9) < `fire` (ej. 2.0) evita el parpadeo cuando
+ * netPct oscila cerca del umbral. La alerta sólo se re-arma cuando baja
+ * claramente por debajo de `rearm`.
+ *
+ * Devuelve el nuevo estado y si debe enviarse una notificación en este tick.
+ */
+export function nextAlertState(
+  prevArmed: boolean,
+  netPct: number,
+  opts: { fire: number; rearm: number },
+): { armed: boolean; fire: boolean } {
+  if (prevArmed && netPct >= opts.fire) return { armed: false, fire: true };
+  if (!prevArmed && netPct < opts.rearm) return { armed: true, fire: false };
+  return { armed: prevArmed, fire: false };
 }
