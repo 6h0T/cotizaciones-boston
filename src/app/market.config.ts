@@ -6,7 +6,7 @@
 
 // ── Tipos de dólar y plazo ──────────────────────────────────────────────────
 export type DollarType = 'MEP' | 'CCL';
-export type Settlement = 'CI' | 'H24'; // CI=T+0 (estimado), H24=T+1/24hs (libro real)
+export type Settlement = 'CI' | 'H24'; // CI=T+0 (IOL por símbolo, o estimado), H24=T+1/24hs (panel)
 
 // ── Fila cruda del libro de un CEDEAR ───────────────────────────────────────
 export interface CedearRow {
@@ -76,8 +76,9 @@ export const DEFAULTS = {
 } as const;
 
 // ── Fuentes de datos de CEDEARs ─────────────────────────────────────────────
-// IOL (vía serverless function /api/iol/cedears) entrega precios reales por
-// plazo (t0=CI, t1=24hs). data912 es el fallback (un solo libro ≈ 24hs).
+// IOL (vía serverless function /api/iol/cedears): t1 = panel completo (libro
+// 24hs); t0 = cotización POR SÍMBOLO (el panel de IOL ignora el plazo) sólo
+// para el subset líquido. data912 es el fallback (un solo libro ≈ 24hs).
 export const IOL_PLAZO: Record<Settlement, 't0' | 't1'> = { CI: 't0', H24: 't1' };
 export const iolCedearsUrl = (s: Settlement): string =>
   `/api/iol/cedears?plazo=${IOL_PLAZO[s]}`;

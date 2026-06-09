@@ -102,7 +102,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
       @if (settlement() === 'CI') {
         @if (ciIsReal()) {
           <div class="ci-note real">
-            Contado Inmediato — precios reales de pantalla (IOL, plazo t0).
+            Contado Inmediato — libro real T+0 por símbolo (IOL), sólo pares con liquidez.
           </div>
         } @else {
           <div class="ci-note">
