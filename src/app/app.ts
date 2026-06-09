@@ -85,6 +85,9 @@ export class App implements OnInit, OnDestroy {
   activeAlerts = signal<ArbOpportunity[]>([]);
   private armed: Record<string, boolean> = {};      // por tabId; true = listo para disparar
   private audioCtx?: AudioContext;
+  private alertBuffer?: AudioBuffer;                 // /alert.wav decodificado
+  private alertBufferLoading = false;
+  private unlockAudio = () => this.initAudio();
   private monitorSettings: MonitorSettings = {
     commissionPct: DEFAULTS.commissionPct,
     minUsdVol: DEFAULTS.minUsdVol,
@@ -146,10 +149,17 @@ export class App implements OnInit, OnDestroy {
   ngOnInit() {
     this.refreshAll();
     this.startTimer();
+    // Primer gesto en la página → desbloquear el audio (política de autoplay)
+    // para que la alerta pueda sonar aunque la pestaña quede en segundo plano
+    // o el navegador minimizado.
+    document.addEventListener('pointerdown', this.unlockAudio, { once: true });
+    document.addEventListener('keydown', this.unlockAudio, { once: true });
   }
 
   ngOnDestroy() {
     this.sub?.unsubscribe();
+    document.removeEventListener('pointerdown', this.unlockAudio);
+    document.removeEventListener('keydown', this.unlockAudio);
   }
 
   private startTimer() {
@@ -340,7 +350,21 @@ export class App implements OnInit, OnDestroy {
         if (Ctor) this.audioCtx = new Ctor();
       }
       if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+      this.loadAlertSound();
     } catch { /* audio no disponible: ignorar */ }
+  }
+
+  // Pre-carga /alert.wav como AudioBuffer. Web Audio reproduce igual con la
+  // pestaña en segundo plano o el navegador minimizado, siempre que el
+  // contexto se haya desbloqueado con un gesto del usuario.
+  private loadAlertSound() {
+    if (this.alertBuffer || this.alertBufferLoading || !this.audioCtx) return;
+    this.alertBufferLoading = true;
+    fetch('/alert.wav')
+      .then((r) => r.arrayBuffer())
+      .then((buf) => this.audioCtx!.decodeAudioData(buf))
+      .then((decoded) => { this.alertBuffer = decoded; })
+      .catch(() => { this.alertBufferLoading = false; });
   }
 
   private playBeep() {
@@ -348,6 +372,14 @@ export class App implements OnInit, OnDestroy {
       this.initAudio();
       const ctx = this.audioCtx;
       if (!ctx) return;
+      // Sonido custom de alerta; beep sintetizado sólo si el .wav aún no cargó.
+      if (this.alertBuffer) {
+        const src = ctx.createBufferSource();
+        src.buffer = this.alertBuffer;
+        src.connect(ctx.destination);
+        src.start();
+        return;
+      }
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
