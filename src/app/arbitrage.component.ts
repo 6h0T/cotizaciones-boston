@@ -124,22 +124,36 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
           </div>
         }
 
-        <!-- Auto-selección prominente -->
+        <!-- Auto-selección + volumen operable resumido por tipo de operación -->
         <div class="auto-banner">
           @if (selectedBuy(); as b) {
             <div class="auto-pill buy">
               <span class="auto-action">Comprás CEDEAR</span>
               <span class="auto-ticker">{{ b.base }}</span>
-              <span class="auto-rate">$ {{ fmt(b.dolarVenta, 2) }} / USD</span>
-              <span class="auto-vol">vol {{ fmt(volBuy(b), 0) }} USD</span>
+              <span class="auto-quote">
+                <span class="auto-rate">$ {{ fmt(b.dolarVenta, 2) }}<span class="auto-unit">/USD</span></span>
+                <span class="auto-vol">{{ fmt(volBuyUnits(b), 0) }} u. · {{ fmt(volBuy(b), 0) }} USD</span>
+              </span>
             </div>
           }
           @if (selectedSell(); as s) {
             <div class="auto-pill sell">
               <span class="auto-action">Vendés CEDEAR</span>
               <span class="auto-ticker">{{ s.base }}</span>
-              <span class="auto-rate">$ {{ fmt(s.dolarCompra, 2) }} / USD</span>
-              <span class="auto-vol">vol {{ fmt(volSell(s), 0) }} USD</span>
+              <span class="auto-quote">
+                <span class="auto-rate">$ {{ fmt(s.dolarCompra, 2) }}<span class="auto-unit">/USD</span></span>
+                <span class="auto-vol">{{ fmt(volSellUnits(s), 0) }} u. · {{ fmt(volSell(s), 0) }} USD</span>
+              </span>
+            </div>
+          }
+          @if (trade(); as t) {
+            <div class="auto-operable">
+              <span class="ao-lbl">Operable real (mín. de ambas puntas)</span>
+              <span class="ao-units">{{ fmt(t.tradeableUnits, 0) }} u.</span>
+              <span class="ao-sep">·</span>
+              <span class="ao-mny">$ {{ fmt(t.tradeableArs, 0) }} ARS</span>
+              <span class="ao-sep">·</span>
+              <span class="ao-mny">USD {{ fmt(t.tradeableUsd, 2) }}</span>
             </div>
           }
         </div>
@@ -168,7 +182,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                   <strong class="ticker-chip">{{ b.base }}</strong>
                 </div>
                 <div class="row">
-                  <span>Pago en ARS (ask)</span>
+                  <span>Precio de compra</span>
                   <strong>{{ fmt(b.arsAsk, 2) }}</strong>
                 </div>
                 <div class="row">
@@ -229,6 +243,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
           >
             <h3>3. Resultado del trade</h3>
             @if (trade(); as t) {
+              @if (t.netProfit > 0) {
               <div class="steps">
                 <div class="step">
                   <span class="lbl">Compro CEDEAR ARS</span>
@@ -270,34 +285,17 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                 </div>
               </div>
 
-              <!-- Volumen operable real de AMBAS puntas -->
-              <div class="vol-box">
-                <div class="vol-title">Volumen operable real = mínimo(compra, venta)</div>
-                <div class="vol-grid">
-                  <div class="vol-cell">
-                    <span class="vol-lbl">Lado compra</span>
-                    <span class="vol-val">{{ fmt(t.buyVolUnits, 0) }} u.</span>
-                  </div>
-                  <div class="vol-cell">
-                    <span class="vol-lbl">Lado venta</span>
-                    <span class="vol-val">{{ fmt(t.sellVolUnits, 0) }} u.</span>
-                  </div>
-                  <div class="vol-cell hero">
-                    <span class="vol-lbl">Operable (mín.)</span>
-                    <span class="vol-val">{{ fmt(t.tradeableUnits, 0) }} u.</span>
-                  </div>
-                </div>
-                <div class="vol-foot">
-                  <span>$ {{ fmt(t.tradeableArs, 0) }} ARS</span>
-                  <span>USD {{ fmt(t.tradeableUsd, 2) }}</span>
-                </div>
-              </div>
-
               <p class="disclaimer">
                 Neto = bruto menos {{ fmt(t.commissionPct, 2) }} % de comisión/gastos.
                 No incluye derechos de mercado, parking ni impuestos.
                 Operación válida sólo hasta el volumen operable real (mínimo de ambas puntas).
               </p>
+              } @else {
+              <div class="no-arb">
+                <strong>No hay oportunidad rentable ahora.</strong>
+                <span>El mejor par da un neto de {{ fmt(t.netPct, 3) }} % tras {{ fmt(t.commissionPct, 2) }} % de comisión. Esperá a que el spread se abra.</span>
+              </div>
+              }
             } @else {
               <div class="empty">No hay par operable para calcular el resultado.</div>
             }
@@ -333,8 +331,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                   <td class="num">{{ fmt(p.usdAsk, 4) }}</td>
                   <td class="num">{{ fmt(p.dolarCompra, 2) }}</td>
                   <td class="num">{{ fmt(p.dolarVenta, 2) }}</td>
-                  <td class="num" [class.vol-lo]="volBuy(p) < minUsdVol()">{{ fmt(volBuy(p), 0) }}</td>
-                  <td class="num" [class.vol-lo]="volSell(p) < minUsdVol()">{{ fmt(volSell(p), 0) }}</td>
+                  <td class="num" [class.vol-lo]="volBuy(p) < minUsdVol()" [class.vol-sel]="p.base === selectedBuy()?.base">{{ fmt(volBuy(p), 0) }}</td>
+                  <td class="num" [class.vol-lo]="volSell(p) < minUsdVol()" [class.vol-sel]="p.base === selectedSell()?.base">{{ fmt(volSell(p), 0) }}</td>
                   <td class="num">{{ fmt(p.spreadPct, 3) }}</td>
                 </tr>
               }
@@ -387,6 +385,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
       font-size: 12px;
     }
     td.vol-lo { color: var(--ink-3); }
+    /* Vol operable de la punta elegida: resaltado para seguirlo aunque cambie cada segundo. */
+    td.vol-sel { font-weight: 700; color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 
     /* Congelar para operar */
     .freeze-btn {
@@ -453,14 +453,31 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
       font-family: var(--font-mono); font-size: 22px; font-weight: 600;
       letter-spacing: -0.01em; color: var(--ink);
     }
+    .auto-pill .auto-quote {
+      margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+    }
     .auto-pill .auto-rate {
-      margin-left: auto; font-family: var(--font-mono); font-size: 14px; font-weight: 600;
-      color: var(--ink-2);
+      font-family: var(--font-mono); font-size: 16px; font-weight: 600;
+      color: var(--ink); line-height: 1.1;
     }
+    .auto-pill .auto-unit { font-size: 10px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
     .auto-pill .auto-vol {
-      flex-basis: 100%; text-align: right;
-      font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+      font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
     }
+    /* Volumen operable real, consolidado al pie de la caja de puntas. */
+    .auto-operable {
+      grid-column: 1 / -1;
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      padding: 10px 16px; border-top: 1px solid var(--line);
+      background: var(--pos-bg);
+    }
+    .auto-operable .ao-lbl {
+      font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--ink-3); margin-right: auto;
+    }
+    .auto-operable .ao-units { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--pos); }
+    .auto-operable .ao-mny { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+    .auto-operable .ao-sep { color: var(--ink-3); }
 
     .grid {
       display: grid; gap: 14px;
@@ -482,7 +499,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .card.buy h3::before { background: var(--accent); }
     .card.sell h3::before { background: var(--warn); }
     .card.result.profit h3::before { background: var(--pos); }
-    .card.result.loss h3::before { background: var(--neg); }
     .card .hint { margin: 0 0 12px; font-size: 11px; color: var(--ink-3); }
     .card select {
       width: 100%; padding: 8px 10px; font-size: 13px; font-family: var(--font-ui);
@@ -506,7 +522,17 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .row.big .hi { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--ink); }
 
     .card.result.profit { background: var(--pos-bg); border-color: var(--pos-line); }
-    .card.result.loss { background: var(--neg-bg); border-color: var(--neg-line); }
+    /* Neto negativo = "sin oportunidad" (informativo), no una pérdida realizada → ámbar, no rojo. */
+    .card.result.loss { background: var(--warn-bg); border-color: var(--warn-line); }
+    .card.result.loss h3::before { background: var(--warn); }
+
+    .no-arb {
+      display: flex; flex-direction: column; gap: 6px;
+      margin-top: 8px; padding: 16px 14px; border-radius: var(--r);
+      background: var(--surface); border: 1px solid var(--warn-line);
+    }
+    .no-arb strong { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--warn); }
+    .no-arb span { font-size: 12px; color: var(--ink-2); line-height: 1.55; }
 
     .steps { display: flex; flex-direction: column; gap: 5px; }
     .step { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--ink-2); }
@@ -522,25 +548,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .card.result.loss .step.net .val { color: var(--neg); }
     .steps hr { border: 0; border-top: 1px solid var(--line); margin: 8px 0 6px; }
     .disclaimer { margin: 12px 0 0; font-size: 11px; color: var(--ink-3); line-height: 1.55; }
-
-    .vol-box {
-      margin-top: 14px; padding: 12px; border-radius: var(--r);
-      background: var(--surface-2); border: 1px solid var(--line);
-    }
-    .vol-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--ink); margin-bottom: 10px; }
-    .vol-grid { display: flex; gap: 8px; }
-    .vol-cell {
-      flex: 1; display: flex; flex-direction: column; gap: 3px;
-      padding: 9px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--line);
-    }
-    .vol-cell.hero { background: var(--pos-bg); border-color: var(--pos-line); }
-    .vol-lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); }
-    .vol-val { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--ink); }
-    .vol-cell.hero .vol-val { color: var(--pos); }
-    .vol-foot {
-      display: flex; justify-content: space-between; margin-top: 9px;
-      font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink-2);
-    }
 
     .empty {
       padding: 40px 20px; color: var(--ink-3); font-size: 13px; text-align: center;
@@ -596,6 +603,9 @@ export class ArbitrageComponent {
   settlementLabel = settlementLabel;
   volBuy = buyLegUsd;
   volSell = sellLegUsd;
+  // Profundidad operable por punta en UNIDADES (misma convención que computeTrade).
+  volBuyUnits = (p: ArbPair) => Math.min(p.qArsAsk, p.qUsdBid);
+  volSellUnits = (p: ArbPair) => Math.min(p.qUsdAsk, p.qArsBid);
 
   // --- Pairs from shared engine ---
   pairs = computed<ArbPair[]>(() =>
