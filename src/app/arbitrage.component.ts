@@ -183,15 +183,24 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                 </div>
                 <div class="row">
                   <span>Precio de compra</span>
-                  <strong>{{ fmt(b.arsAsk, 2) }}</strong>
+                  <span class="pv">
+                    <strong>{{ fmt(b.arsAsk, 2) }}</strong>
+                    <em class="qty">{{ fmt(b.qArsAsk, 0) }} u.</em>
+                  </span>
                 </div>
                 <div class="row">
                   <span>Recibo en USD (bid)</span>
-                  <strong>{{ fmt(b.usdBid, 4) }}</strong>
+                  <span class="pv">
+                    <strong>{{ fmt(b.usdBid, 4) }}</strong>
+                    <em class="qty">{{ fmt(b.qUsdBid, 0) }} u.</em>
+                  </span>
                 </div>
                 <div class="row big">
                   <span>$ Venta (compro USD)</span>
-                  <strong class="hi">$ {{ fmt(b.dolarVenta, 2) }}</strong>
+                  <span class="pv">
+                    <strong class="hi">$ {{ fmt(b.dolarVenta, 2) }}</strong>
+                    <em class="qty">{{ fmt(volBuyUnits(b), 0) }} u. operables</em>
+                  </span>
                 </div>
               </div>
             }
@@ -221,15 +230,24 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                 </div>
                 <div class="row">
                   <span>Pago en USD (ask)</span>
-                  <strong>{{ fmt(s.usdAsk, 4) }}</strong>
+                  <span class="pv">
+                    <strong>{{ fmt(s.usdAsk, 4) }}</strong>
+                    <em class="qty">{{ fmt(s.qUsdAsk, 0) }} u.</em>
+                  </span>
                 </div>
                 <div class="row">
                   <span>Recibo en ARS (bid)</span>
-                  <strong>{{ fmt(s.arsBid, 2) }}</strong>
+                  <span class="pv">
+                    <strong>{{ fmt(s.arsBid, 2) }}</strong>
+                    <em class="qty">{{ fmt(s.qArsBid, 0) }} u.</em>
+                  </span>
                 </div>
                 <div class="row big">
                   <span>$ Compra (vendo USD)</span>
-                  <strong class="hi">$ {{ fmt(s.dolarCompra, 2) }}</strong>
+                  <span class="pv">
+                    <strong class="hi">$ {{ fmt(s.dolarCompra, 2) }}</strong>
+                    <em class="qty">{{ fmt(volSellUnits(s), 0) }} u. operables</em>
+                  </span>
                 </div>
               </div>
             }
@@ -512,6 +530,12 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
       font-size: 12px; color: var(--ink-2);
     }
     .row strong { color: var(--ink); font-weight: 600; font-family: var(--font-mono); }
+    /* Precio arriba, volumen operable de esa punta debajo. */
+    .row .pv { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+    .row .pv .qty {
+      font-style: normal; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+      color: var(--ink-3);
+    }
     .row.ticker-row { padding-bottom: 8px; }
     .ticker-chip {
       background: var(--surface-2); border: 1px solid var(--line);
