@@ -181,21 +181,21 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                   <span>Precio de compra <em class="tk">{{ b.base }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(b.arsAsk, 2) }}</strong>
-                    <em class="qty">{{ fmt(b.qArsAsk, 0) }} u.</em>
+                    <em class="qty">vol compra · {{ fmt(b.qArsAsk, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row">
                   <span>Precio de venta <em class="tk">{{ usdTicker(b.base) }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(b.usdBid, 4) }}</strong>
-                    <em class="qty">{{ fmt(b.qUsdBid, 0) }} u.</em>
+                    <em class="qty">vol venta · {{ fmt(b.qUsdBid, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row big">
-                  <span>$ Venta (compro USD)</span>
+                  <span>Precio dólar venta (compro USD)</span>
                   <span class="pv">
                     <strong class="hi">$ {{ fmt(b.dolarVenta, 2) }}</strong>
-                    <em class="qty">{{ fmt(volBuyUnits(b), 0) }} u. operables</em>
+                    <em class="qty">operable · {{ fmt(volBuyUnits(b), 0) }} u.</em>
                   </span>
                 </div>
               </div>
@@ -224,21 +224,21 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
                   <span>Precio de compra <em class="tk">{{ usdTicker(s.base) }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(s.usdAsk, 4) }}</strong>
-                    <em class="qty">{{ fmt(s.qUsdAsk, 0) }} u.</em>
+                    <em class="qty">vol compra · {{ fmt(s.qUsdAsk, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row">
                   <span>Precio de venta <em class="tk">{{ s.base }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(s.arsBid, 2) }}</strong>
-                    <em class="qty">{{ fmt(s.qArsBid, 0) }} u.</em>
+                    <em class="qty">vol venta · {{ fmt(s.qArsBid, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row big">
-                  <span>$ Compra (vendo USD)</span>
+                  <span>Precio dólar compra (vendo USD)</span>
                   <span class="pv">
                     <strong class="hi">$ {{ fmt(s.dolarCompra, 2) }}</strong>
-                    <em class="qty">{{ fmt(volSellUnits(s), 0) }} u. operables</em>
+                    <em class="qty">operable · {{ fmt(volSellUnits(s), 0) }} u.</em>
                   </span>
                 </div>
               </div>
