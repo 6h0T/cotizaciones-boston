@@ -16,7 +16,7 @@
   align-items: center;
   gap: 14px;
   padding: 0 16px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(253, 253, 252, 0.82);
   backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--line);
 }
@@ -248,7 +248,7 @@ td {
   white-space: nowrap; color: var(--ink);
 }
 th.num, td.num { text-align: right; }
-tbody tr:nth-child(even) td { background: rgba(244,244,245,.45); }
+tbody tr:nth-child(even) td { background: rgba(239,238,235,.5); }
 tbody tr:hover td { background: var(--accent-sf); }
 
 .empty {
@@ -260,7 +260,7 @@ tbody tr:hover td { background: var(--accent-sf); }
 .foot {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
   padding: 7px 24px;
-  background: rgba(255,255,255,.82); backdrop-filter: saturate(180%) blur(12px);
+  background: rgba(253,253,252,.82); backdrop-filter: saturate(180%) blur(12px);
   border-top: 1px solid var(--line);
   font-size: 11px; color: var(--ink-3);
 }
@@ -333,7 +333,7 @@ tbody tr:hover td { background: var(--accent-sf); }
 .ai-net {
   font-family: var(--font-mono);
   font-size: 16px; font-weight: 700;
-  color: var(--pos);
+  color: var(--pos-strong);
   white-space: nowrap;
 }
 

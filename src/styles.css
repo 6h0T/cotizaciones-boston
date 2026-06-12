@@ -1,8 +1,11 @@
 /* ───────────────────────────────────────────────────────────────────────────
    Sistema de diseño — Cotizaciones Boston
-   Estética: terminal financiera, densa y funcional. Base neutra zinc, un único
-   acento, semántica verde/rojo para P&L, números en monospace. Sin púrpura "AI",
-   sin glows, sin cajas redondeadas de relleno.
+   Estética: terminal financiera, densa y funcional. Inspirado en la colorimetría
+   de la Terminal de Bloomberg: una base neutra y calma de baja fatiga (acá un
+   off-white papel en vez de blanco puro), con el color saturado RESERVADO sólo
+   para significado (compra/venta, P&L, oportunidad) — el verde resalta porque
+   casi todo lo demás es neutro. Un único acento azul, números en monospace.
+   Sin púrpura "AI", sin glows, sin cajas redondeadas de relleno.
    ─────────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -10,30 +13,32 @@
   --font-display: 'Manrope', 'Geist', system-ui, sans-serif; /* títulos/marca — igual que boston-ar */
   --font-mono:    'Geist Mono', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* Superficies */
-  --bg:        #f7f7f8;
-  --surface:   #ffffff;
-  --surface-2: #f4f4f5;
-  --surface-3: #ececee;
+  /* Superficies — off-white papel de baja fatiga (no blanco puro: reduce el glare
+     y deja que el color semántico llame la atención, como el negro de Bloomberg). */
+  --bg:        #f3f2f0;
+  --surface:   #fdfdfc;
+  --surface-2: #efeeeb;
+  --surface-3: #e6e5e1;
 
-  /* Tinta */
-  --ink:   #18181b;
-  --ink-2: #52525b;
-  --ink-3: #8b8b93;
+  /* Tinta — casi-negro neutro para los datos; grises legibles para lo secundario */
+  --ink:   #1a1a1d;
+  --ink-2: #4d4d54;
+  --ink-3: #78787f;
 
   /* Líneas */
-  --line:   #e7e7ea;
-  --line-2: #d6d6da;
+  --line:   #e4e3df;
+  --line-2: #d2d1cc;
 
   /* Acento único (azul eléctrico, usado con moderación) */
   --accent:    #2563eb;
   --accent-2:  #1d4ed8;
-  --accent-sf: #eff4ff;
+  --accent-sf: #eef3ff;
 
-  /* Semántica P&L */
-  --pos:    #15803d;  --pos-bg: #f0fdf4;  --pos-line: #bbf7d0;
-  --neg:    #b91c1c;  --neg-bg: #fef2f2;  --neg-line: #fecaca;
-  --warn:   #b45309;  --warn-bg:#fffbeb;  --warn-line:#fde68a;
+  /* Semántica P&L — saturada y reservada SÓLO para significado. `*-strong` es el
+     tono más profundo para los números protagonistas (operable, neto). */
+  --pos:    #15803d;  --pos-bg: #ecfbf1;  --pos-line: #a6e6bf;  --pos-strong: #166534;
+  --neg:    #be1f1f;  --neg-bg: #fceff0;  --neg-line: #f3bbbb;  --neg-strong: #991b1b;
+  --warn:   #b45309;  --warn-bg:#fcf5e6;  --warn-line:#f0d384;  --warn-strong: #92400e;
 
   /* Radios y sombra */
   --r-sm: 6px;

@@ -474,20 +474,22 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .auto-pill .auto-vol {
       font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
     }
-    /* Volumen operable real, consolidado al pie de la caja de puntas. */
+    /* Volumen operable real, consolidado al pie de la caja de puntas.
+       Es el dato que limita la operación → se trata como la zona "oportunidad":
+       fondo verde, barra de acento a la izquierda y número protagonista. */
     .auto-operable {
       grid-column: 1 / -1;
       display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-      padding: 10px 16px; border-top: 1px solid var(--line);
-      background: var(--pos-bg);
+      padding: 11px 16px; border-top: 1px solid var(--pos-line);
+      background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos);
     }
     .auto-operable .ao-lbl {
-      font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--ink-3); margin-right: auto;
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--pos); margin-right: auto;
     }
-    .auto-operable .ao-units { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--pos); }
-    .auto-operable .ao-mny { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink-2); }
-    .auto-operable .ao-sep { color: var(--ink-3); }
+    .auto-operable .ao-units { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--pos-strong); }
+    .auto-operable .ao-mny { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink); }
+    .auto-operable .ao-sep { color: var(--pos-line); }
 
     .grid {
       display: grid; gap: 14px;
@@ -537,7 +539,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .row.big { padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 8px; font-size: 13px; }
     .row.big .hi { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--ink); }
 
-    .card.result.profit { background: var(--pos-bg); border-color: var(--pos-line); }
+    .card.result.profit { background: var(--pos-bg); border-color: var(--pos-line); box-shadow: var(--shadow-sm), inset 3px 0 0 var(--pos); }
     /* Neto negativo = "sin oportunidad" (informativo), no una pérdida realizada → ámbar, no rojo. */
     .card.result.loss { background: var(--warn-bg); border-color: var(--warn-line); }
     .card.result.loss h3::before { background: var(--warn); }
@@ -559,7 +561,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .step.net .lbl { color: var(--pos); }
     .step.net .val { color: var(--pos); }
     .step.net.big-net { font-size: 15px; }
-    .step.net.big-net .val { font-size: 19px; font-weight: 600; }
+    .step.net.big-net .lbl, .step.net.big-net .val { color: var(--pos-strong); }
+    .step.net.big-net .val { font-size: 19px; font-weight: 700; }
     .card.result.loss .step.net .lbl,
     .card.result.loss .step.net .val { color: var(--neg); }
     .steps hr { border: 0; border-top: 1px solid var(--line); margin: 8px 0 6px; }
