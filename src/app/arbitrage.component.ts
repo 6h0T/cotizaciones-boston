@@ -177,19 +177,15 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
 
             @if (selectedBuy(); as b) {
               <div class="card-body">
-                <div class="row ticker-row">
-                  <span>CEDEAR a comprar</span>
-                  <strong class="ticker-chip">{{ b.base }}</strong>
-                </div>
                 <div class="row">
-                  <span>Precio de compra</span>
+                  <span>Precio de compra <em class="tk">{{ b.base }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(b.arsAsk, 2) }}</strong>
                     <em class="qty">{{ fmt(b.qArsAsk, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row">
-                  <span>Recibo en USD (bid)</span>
+                  <span>Precio de venta <em class="tk">{{ usdTicker(b.base) }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(b.usdBid, 4) }}</strong>
                     <em class="qty">{{ fmt(b.qUsdBid, 0) }} u.</em>
@@ -224,19 +220,15 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
 
             @if (selectedSell(); as s) {
               <div class="card-body">
-                <div class="row ticker-row">
-                  <span>CEDEAR a vender</span>
-                  <strong class="ticker-chip">{{ s.base }}</strong>
-                </div>
                 <div class="row">
-                  <span>Pago en USD (ask)</span>
+                  <span>Precio de compra <em class="tk">{{ usdTicker(s.base) }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(s.usdAsk, 4) }}</strong>
                     <em class="qty">{{ fmt(s.qUsdAsk, 0) }} u.</em>
                   </span>
                 </div>
                 <div class="row">
-                  <span>Recibo en ARS (bid)</span>
+                  <span>Precio de venta <em class="tk">{{ s.base }}</em></span>
                   <span class="pv">
                     <strong>{{ fmt(s.arsBid, 2) }}</strong>
                     <em class="qty">{{ fmt(s.qArsBid, 0) }} u.</em>
@@ -530,17 +522,17 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
       font-size: 12px; color: var(--ink-2);
     }
     .row strong { color: var(--ink); font-weight: 600; font-family: var(--font-mono); }
+    /* Ticker real de la punta (pesos / par en dólares) junto a su precio. */
+    .row .tk {
+      font-style: normal; font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+      color: var(--ink); background: var(--surface-2); border: 1px solid var(--line);
+      padding: 1px 6px; border-radius: var(--r-sm); margin-left: 4px;
+    }
     /* Precio arriba, volumen operable de esa punta debajo. */
     .row .pv { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
     .row .pv .qty {
       font-style: normal; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
       color: var(--ink-3);
-    }
-    .row.ticker-row { padding-bottom: 8px; }
-    .ticker-chip {
-      background: var(--surface-2); border: 1px solid var(--line);
-      padding: 2px 9px; border-radius: var(--r-sm);
-      font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink);
     }
     .row.big { padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 8px; font-size: 13px; }
     .row.big .hi { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--ink); }
@@ -630,6 +622,8 @@ export class ArbitrageComponent {
   // Profundidad operable por punta en UNIDADES (misma convención que computeTrade).
   volBuyUnits = (p: ArbPair) => Math.min(p.qArsAsk, p.qUsdBid);
   volSellUnits = (p: ArbPair) => Math.min(p.qUsdAsk, p.qArsBid);
+  // Símbolo del par en dólares (ej. SHEL → SHELD) según el tipo de dólar.
+  usdTicker = (base: string) => base + SUFFIX[this.dollarType()];
 
   // --- Pairs from shared engine ---
   pairs = computed<ArbPair[]>(() =>
