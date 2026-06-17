@@ -6,6 +6,7 @@ import {
   CedearRow,
   ArbPair,
   TradeResult,
+  NominalsPlan,
   DollarType,
   Settlement,
   SUFFIX,
@@ -13,7 +14,7 @@ import {
   settlementLabel,
 } from './market.config';
 
-import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } from './arb-engine';
+import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, solveNominals } from './arb-engine';
 
 @Component({
   selector: 'app-arbitrage',
@@ -33,6 +34,17 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
             step="1000"
             [ngModel]="amountArs()"
             (ngModelChange)="amountArs.set(+$event || 0)"
+          />
+        </label>
+
+        <label class="monto budget">
+          Presupuesto real ARS
+          <input
+            type="number"
+            min="1000"
+            step="1000"
+            [ngModel]="budgetArs()"
+            (ngModelChange)="budgetArs.set(+$event >= 0 ? +$event : 0)"
           />
         </label>
 
@@ -157,6 +169,90 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
             </div>
           }
         </div>
+
+        <!-- Nominales enteros a apretar en el broker (solver del presupuesto) -->
+        @if (selectedBuy() && selectedSell()) {
+          <div class="nominals">
+            <div class="nm-head">
+              <h3>Nominales a operar según tu presupuesto</h3>
+              <span class="nm-sub">Para un presupuesto de <strong>$ {{ fmt(budgetArs(), 0) }}</strong> ARS — cantidades enteras, la 2.ª pata se financia con los USD reales de la 1.ª.</span>
+            </div>
+
+            @if (nominalsPlan(); as plan) {
+              <table class="nm-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Acción</th>
+                    <th>Ticker</th>
+                    <th class="num">Precio</th>
+                    <th class="num">Nominales</th>
+                    <th class="num">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="op-buy">
+                    <td class="ix">1</td>
+                    <td><span class="op">Compro</span> <span class="cur">ARS</span></td>
+                    <td><span class="tk">{{ plan.buyArsTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.buyArsAsk, 2) }}</td>
+                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
+                    <td class="num">$ {{ fmt(plan.arsSpent, 2) }}</td>
+                  </tr>
+                  <tr class="op-sell">
+                    <td class="ix">2</td>
+                    <td><span class="op">Vendo</span> <span class="cur">USD</span></td>
+                    <td><span class="tk">{{ plan.sellUsdTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.buyUsdBid, 4) }}</td>
+                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
+                    <td class="num">USD {{ fmt(plan.usdObtained, 2) }}</td>
+                  </tr>
+                  <tr class="op-buy">
+                    <td class="ix">3</td>
+                    <td><span class="op">Compro</span> <span class="cur">USD</span></td>
+                    <td><span class="tk">{{ plan.buyUsdTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.sellUsdAsk, 4) }}</td>
+                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
+                    <td class="num">USD {{ fmt(plan.usdSpent, 2) }}</td>
+                  </tr>
+                  <tr class="op-sell">
+                    <td class="ix">4</td>
+                    <td><span class="op">Vendo</span> <span class="cur">ARS</span></td>
+                    <td><span class="tk">{{ plan.sellBase }}</span></td>
+                    <td class="num">{{ fmt(plan.sellArsBid, 2) }}</td>
+                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
+                    <td class="num">$ {{ fmt(plan.arsOut, 2) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="nm-foot">
+                <div class="nm-left">
+                  <span class="nm-lbl">Sobrante</span>
+                  <span class="nm-val">$ {{ fmt(plan.arsLeftover, 2) }} ARS</span>
+                  <span class="nm-sep">·</span>
+                  <span class="nm-val">USD {{ fmt(plan.usdLeftover, 2) }}</span>
+                  <span class="nm-note">no alcanza para otro nominal con el dinero disponible</span>
+                </div>
+                <div
+                  class="nm-prof"
+                  [class.pos]="plan.netProfit > 0"
+                  [class.neg]="plan.netProfit <= 0"
+                >
+                  <span class="nm-lbl">Ganancia neta (sobre lo invertido)</span>
+                  <span class="nm-pval">$ {{ fmt(plan.netProfit, 2) }}</span>
+                  <span class="nm-ppct">{{ fmt(plan.netPct, 3) }} %</span>
+                </div>
+              </div>
+            } @else {
+              <div class="nm-empty">
+                El presupuesto de $ {{ fmt(budgetArs(), 0) }} no alcanza para un nominal de
+                <b>{{ selectedBuy()!.base }}</b> a $ {{ fmt(selectedBuy()!.arsAsk, 2) }}
+                (o el libro no tiene profundidad). Subí el presupuesto.
+              </div>
+            }
+          </div>
+        }
 
         <div class="grid">
           <!-- Compro USD -->
@@ -491,6 +587,92 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd } fr
     .auto-operable .ao-mny { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink); }
     .auto-operable .ao-sep { color: var(--pos-line); }
 
+    /* ── Nominales a apretar en el broker ─────────────────────────────────
+       El output accionable: tabla de las 4 órdenes con cantidades enteras.
+       Espeja el layout del ejercicio (Acción · Ticker · Precio · Nominales · Monto). */
+    .nominals {
+      margin-bottom: 22px; border: 1px solid var(--line); border-radius: var(--r-lg);
+      background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden;
+    }
+    .nm-head {
+      display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line);
+    }
+    .nm-head h3 {
+      margin: 0; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--ink);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .nm-head h3::before { content: ''; width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+    .nm-sub { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
+    .nm-sub strong { font-family: var(--font-mono); color: var(--ink-2); font-weight: 600; }
+
+    table.nm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .nm-table th {
+      text-align: left; padding: 8px 16px; background: var(--surface-2);
+      font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--ink-3); border-bottom: 1px solid var(--line); white-space: nowrap;
+    }
+    .nm-table th.num, .nm-table td.num { text-align: right; }
+    .nm-table td {
+      padding: 11px 16px; border-bottom: 1px solid var(--line); color: var(--ink); white-space: nowrap;
+    }
+    .nm-table tbody tr:last-child td { border-bottom: 0; }
+    .nm-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .nm-table td.ix { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; width: 1%; }
+    .nm-table .op { font-weight: 600; }
+    .nm-table .cur {
+      font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+      color: var(--ink-3); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 1px 5px; margin-left: 4px;
+    }
+    .nm-table .tk {
+      font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--line); padding: 2px 7px; border-radius: var(--r-sm);
+    }
+    /* Nominales: el dato protagonista, lo que se opera en cada orden. */
+    .nm-table td.nom { font-size: 17px; font-weight: 700; color: var(--ink); }
+
+    /* Codificación direccional estilo blotter: cada pata se lee por color en TODA
+       la fila (compra = azul acento, venta = ámbar), no sólo en una palabra. Mismos
+       tokens que la tabla de pares (.sel-buy/.sel-sell) → coherencia con el resto.
+       Washes muy tenues (off-white) para no romper la baja fatiga. */
+    .nm-table tr.op-buy td  { background: var(--accent-sf); }
+    .nm-table tr.op-sell td { background: var(--warn-bg); }
+    .nm-table tr.op-buy td.ix  { box-shadow: inset 3px 0 0 var(--accent); }
+    .nm-table tr.op-sell td.ix { box-shadow: inset 3px 0 0 var(--warn); }
+    .nm-table tr.op-buy .op,
+    .nm-table tr.op-buy td.nom  { color: var(--accent-2); }
+    .nm-table tr.op-sell .op,
+    .nm-table tr.op-sell td.nom { color: var(--warn-strong); }
+    .nm-table tr.op-buy .tk  { background: var(--surface); border-color: var(--accent);    color: var(--accent-2); }
+    .nm-table tr.op-sell .tk { background: var(--surface); border-color: var(--warn-line); color: var(--warn-strong); }
+
+    .nm-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+      padding: 12px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
+    }
+    .nm-left { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+    .nm-left .nm-lbl {
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+    }
+    .nm-left .nm-val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+    .nm-left .nm-sep { color: var(--line); }
+    .nm-left .nm-note { font-size: 11px; color: var(--ink-3); font-style: italic; }
+    .nm-prof { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px; border-radius: var(--r); }
+    .nm-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
+    .nm-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
+    .nm-prof .nm-lbl {
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+    }
+    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+    .nm-prof.pos .nm-pval, .nm-prof.pos .nm-ppct { color: var(--pos-strong); }
+    .nm-prof.neg .nm-pval, .nm-prof.neg .nm-ppct { color: var(--neg-strong); }
+
+    .nm-empty {
+      padding: 22px 16px; color: var(--ink-2); font-size: 12.5px; line-height: 1.55;
+    }
+    .nm-empty b { font-family: var(--font-mono); color: var(--ink); }
+
     .grid {
       display: grid; gap: 14px;
       grid-template-columns: repeat(auto-fit, minmax(264px, 1fr));
@@ -610,6 +792,9 @@ export class ArbitrageComponent {
 
   // --- Internal signals ---
   amountArs = signal<number>(DEFAULTS.amountArs);
+  // Presupuesto real "de bolsillo" para el solver de nominales enteros.
+  // Independiente de amountArs (que es el monto teórico para el % de rendimiento).
+  budgetArs = signal<number>(DEFAULTS.budgetArs);
   commissionPct = signal<number>(DEFAULTS.commissionPct);
   ciAdjustPct = signal<number>(DEFAULTS.ciAdjustPct);
   // Volumen efectivo mínimo (USD) por punta para considerar un par operable.
@@ -685,6 +870,18 @@ export class ArbitrageComponent {
     return computeTrade(buy, sell, {
       amountArs: this.amountArs(),
       commissionPct: this.commissionPct(),
+    });
+  });
+
+  // --- Solver de nominales enteros: cuántos apretar en el broker ---
+  nominalsPlan = computed<NominalsPlan | null>(() => {
+    const buy = this.selectedBuy();
+    const sell = this.selectedSell();
+    if (!buy || !sell) return null;
+    return solveNominals(buy, sell, {
+      budgetArs: this.budgetArs(),
+      commissionPct: this.commissionPct(),
+      usdSuffix: SUFFIX[this.dollarType()],
     });
   });
 

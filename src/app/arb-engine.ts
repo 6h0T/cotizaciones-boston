@@ -3,6 +3,7 @@ import type {
   ArbTab,
   CedearRow,
   DollarType,
+  NominalsPlan,
   Settlement,
   TradeResult,
 } from './market.config';
@@ -18,6 +19,16 @@ const MAX_DOLLAR = 5000;
 /** True when `n` is a usable, strictly-positive price. */
 function validPrice(n: number): boolean {
   return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Floor de una cantidad de nominales, estable ante el ruido de IEEE-754. Sin
+ * esto, `Math.floor(0.3 / 0.1)` daría 2 en vez de 3. Redondeamos a 8 decimales
+ * (más fino que cualquier cotización real) antes del floor para absorber el
+ * error de coma flotante sin alterar resultados genuinamente fraccionarios.
+ */
+function floorQty(value: number): number {
+  return Math.floor(Math.round(value * 1e8) / 1e8);
 }
 
 /**
@@ -221,6 +232,91 @@ export function computeTrade(
     tradeableUnits,
     tradeableArs,
     tradeableUsd,
+  };
+}
+
+/**
+ * Resuelve cuántos nominales ENTEROS apretar en el broker para un presupuesto
+ * en ARS, sobre un par comprador y uno vendedor ya elegidos.
+ *
+ * Modelo (ejercicio Arbitrage.xlsx): cada compra se redondea con `floor` al
+ * dinero disponible y la pata de venta se financia con los dólares REALMENTE
+ * obtenidos en la pata de compra — no con el presupuesto en pesos. Ambas patas
+ * se clampean por la profundidad del libro (misma convención que computeTrade).
+ *
+ * Devuelve `null` si el presupuesto es no-positivo, algún precio es inválido, o
+ * no alcanza ni para 1 nominal de compra. Si se compra pero los USD no alcanzan
+ * para cerrar (nSell=0), devuelve un plan válido (informativo) con arsOut=0.
+ *
+ * Función pura: no muta su entrada ni produce efectos secundarios.
+ */
+export function solveNominals(
+  buy: ArbPair,
+  sell: ArbPair,
+  opts: { budgetArs: number; commissionPct: number; usdSuffix: 'D' | 'C' },
+): NominalsPlan | null {
+  const { budgetArs, commissionPct, usdSuffix } = opts;
+
+  if (!(budgetArs > 0)) return null;
+  if (
+    !validPrice(buy.arsAsk) ||
+    !validPrice(buy.usdBid) ||
+    !validPrice(sell.usdAsk) ||
+    !validPrice(sell.arsBid)
+  ) {
+    return null;
+  }
+
+  // Paso 1 — compro CEDEAR en ARS, clampeado por la profundidad de la pata.
+  const buyDepth = Math.min(buy.qArsAsk, buy.qUsdBid);
+  const nBuy = Math.min(floorQty(budgetArs / buy.arsAsk), Math.floor(buyDepth));
+  if (nBuy <= 0) return null;
+
+  const arsSpent = nBuy * buy.arsAsk;
+  const arsLeftover = budgetArs - arsSpent;
+
+  // Paso 2 — vendo el par en USD: dólares realmente obtenidos.
+  const usdObtained = nBuy * buy.usdBid;
+
+  // Paso 3 — compro CEDEAR en USD: limitado por los USD del paso 2 y la profundidad.
+  const sellDepth = Math.min(sell.qUsdAsk, sell.qArsBid);
+  const nSell = Math.max(
+    0,
+    Math.min(floorQty(usdObtained / sell.usdAsk), Math.floor(sellDepth)),
+  );
+
+  const usdSpent = nSell * sell.usdAsk;
+  const usdLeftover = usdObtained - usdSpent;
+
+  // Paso 4 — vendo el par en ARS.
+  const arsOut = nSell * sell.arsBid;
+
+  const grossProfit = arsOut - arsSpent;
+  const netProfit = grossProfit - arsSpent * (commissionPct / 100);
+  const netPct = arsSpent > 0 ? (netProfit / arsSpent) * 100 : 0;
+
+  return {
+    buyBase: buy.base,
+    buyArsTicker: buy.base,
+    sellUsdTicker: buy.base + usdSuffix,
+    buyUsdTicker: sell.base + usdSuffix,
+    sellBase: sell.base,
+    buyArsAsk: buy.arsAsk,
+    buyUsdBid: buy.usdBid,
+    sellUsdAsk: sell.usdAsk,
+    sellArsBid: sell.arsBid,
+    nBuy,
+    arsSpent,
+    arsLeftover,
+    usdObtained,
+    nSell,
+    usdSpent,
+    usdLeftover,
+    arsOut,
+    commissionPct,
+    grossProfit,
+    netProfit,
+    netPct,
   };
 }
 

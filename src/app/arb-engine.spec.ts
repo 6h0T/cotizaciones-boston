@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CedearRow } from './market.config';
+import type { ArbPair, CedearRow } from './market.config';
 import {
   bestBuy,
   bestSell,
@@ -9,6 +9,7 @@ import {
   sellLegUsd,
   scanOpportunities,
   nextAlertState,
+  solveNominals,
 } from './arb-engine';
 import type { MonitorSettings } from './arb-engine';
 
@@ -357,6 +358,203 @@ describe('scanOpportunities', () => {
     const mepCi = opps.find((o) => o.tabId === 'mep-ci');
     expect(mepCi).toBeDefined();
     expect(mepCi!.ciEstimated).toBe(false);
+  });
+});
+
+// ── Helpers para solveNominals ──────────────────────────────────────────────
+
+/**
+ * Construye un ArbPair directamente (sin pasar por buildPairs ni su filtro de
+ * bandas de dólar), para testear solveNominals de forma aislada. El solver sólo
+ * usa arsAsk/usdBid (pata de compra), usdAsk/arsBid (pata de venta), base y las
+ * profundidades q*. dolarCompra/Venta/spread se completan con valores plausibles.
+ */
+function pair(base: string, p: Partial<ArbPair> = {}): ArbPair {
+  return {
+    base,
+    arsBid: 1000,
+    arsAsk: 1010,
+    usdBid: 0.69,
+    usdAsk: 0.7,
+    qArsBid: 1000,
+    qArsAsk: 1000,
+    qUsdBid: 1000,
+    qUsdAsk: 1000,
+    dolarCompra: 1428,
+    dolarVenta: 1463,
+    spreadPct: 2,
+    ...p,
+  };
+}
+
+describe('solveNominals', () => {
+  // Caso canónico del Excel Arbitrage.xlsx (fuente de verdad).
+  // Compro KEEL @ 45200 (vendo KEELD @ 33.46), compro TMUSD @ 5.62 (vendo TMUS @ 8200).
+  const keel = pair('KEEL', { arsAsk: 45200, usdBid: 33.46 });
+  const tmus = pair('TMUS', { usdAsk: 5.62, arsBid: 8200 });
+
+  it('reproduce el ejercicio del Excel: 3 y 17 nominales con sus sobrantes', () => {
+    const plan = solveNominals(keel, tmus, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan).not.toBeNull();
+    // Paso 1 — compro KEEL en ARS
+    expect(plan.nBuy).toBe(3); // floor(150000/45200) = 3
+    expect(plan.arsSpent).toBeCloseTo(135_600, 6);
+    expect(plan.arsLeftover).toBeCloseTo(14_400, 6);
+    // Paso 2 — vendo KEELD en USD
+    expect(plan.usdObtained).toBeCloseTo(100.38, 6); // 3 * 33.46
+    // Paso 3 — compro TMUSD en USD (limitado por los USD obtenidos, NO por el budget)
+    expect(plan.nSell).toBe(17); // floor(100.38/5.62) = 17, NO 18
+    expect(plan.usdSpent).toBeCloseTo(95.54, 6); // 17 * 5.62
+    expect(plan.usdLeftover).toBeCloseTo(4.84, 2);
+    // Paso 4 — vendo TMUS en ARS
+    expect(plan.arsOut).toBeCloseTo(139_400, 6); // 17 * 8200
+    // Resultado realizado sobre los enteros
+    expect(plan.grossProfit).toBeCloseTo(3_800, 6); // 139400 - 135600
+  });
+
+  it('expone los 4 tickers de las acciones del broker', () => {
+    const plan = solveNominals(keel, tmus, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.buyArsTicker).toBe('KEEL'); // fila 1: compro ARS
+    expect(plan.sellUsdTicker).toBe('KEELD'); // fila 2: vendo USD (par de la pata de compra)
+    expect(plan.buyUsdTicker).toBe('TMUSD'); // fila 3: compro USD (par de la pata de venta)
+    expect(plan.sellBase).toBe('TMUS'); // fila 4: vendo ARS
+  });
+
+  it('respeta el sufijo C (CCL) en los tickers USD', () => {
+    const plan = solveNominals(keel, tmus, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'C',
+    })!;
+    expect(plan.sellUsdTicker).toBe('KEELC');
+    expect(plan.buyUsdTicker).toBe('TMUSC');
+  });
+
+  it('netPct se mide sobre arsSpent (lo invertido), no sobre el budget', () => {
+    const plan = solveNominals(keel, tmus, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.netPct).toBeCloseTo((plan.netProfit / plan.arsSpent) * 100, 6);
+    // con leftover de 14.400, el denominador (135.600) difiere del budget (150.000)
+    expect(plan.netPct).not.toBeCloseTo((plan.netProfit / 150_000) * 100, 6);
+  });
+
+  it('mayor commissionPct reduce el netProfit; el gross no cambia', () => {
+    const lo = solveNominals(keel, tmus, { budgetArs: 150_000, commissionPct: 0.5, usdSuffix: 'D' })!;
+    const hi = solveNominals(keel, tmus, { budgetArs: 150_000, commissionPct: 2, usdSuffix: 'D' })!;
+    expect(hi.netProfit).toBeLessThan(lo.netProfit);
+    expect(hi.grossProfit).toBeCloseTo(lo.grossProfit, 6);
+  });
+
+  it('clampa nBuy por la profundidad del libro de la pata de compra', () => {
+    // El budget alcanzaría para muchos, pero min(qArsAsk, qUsdBid) = 2.
+    const shallowBuy = pair('KEEL', { arsAsk: 45200, usdBid: 33.46, qArsAsk: 2, qUsdBid: 5 });
+    const plan = solveNominals(shallowBuy, tmus, {
+      budgetArs: 10_000_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.nBuy).toBe(2);
+  });
+
+  it('clampa nSell por la profundidad del libro de la pata de venta', () => {
+    const shallowSell = pair('TMUS', { usdAsk: 5.62, arsBid: 8200, qUsdAsk: 1, qArsBid: 10 });
+    const plan = solveNominals(keel, shallowSell, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.nSell).toBe(1); // limitado por la profundidad, aunque alcanzaría para 17
+  });
+
+  it('devuelve null si el presupuesto no alcanza ni para 1 nominal de compra', () => {
+    expect(
+      solveNominals(keel, tmus, { budgetArs: 40_000, commissionPct: 0, usdSuffix: 'D' }),
+    ).toBeNull();
+  });
+
+  it('devuelve null para presupuesto cero o negativo', () => {
+    expect(solveNominals(keel, tmus, { budgetArs: 0, commissionPct: 0, usdSuffix: 'D' })).toBeNull();
+    expect(solveNominals(keel, tmus, { budgetArs: -100, commissionPct: 0, usdSuffix: 'D' })).toBeNull();
+  });
+
+  it('devuelve null ante precios inválidos en cualquiera de las 4 puntas', () => {
+    const opts = { budgetArs: 150_000, commissionPct: 0, usdSuffix: 'D' as const };
+    expect(solveNominals(pair('KEEL', { arsAsk: 0, usdBid: 33.46 }), tmus, opts)).toBeNull();
+    expect(solveNominals(pair('KEEL', { arsAsk: 45200, usdBid: NaN }), tmus, opts)).toBeNull();
+    expect(solveNominals(keel, pair('TMUS', { usdAsk: 0, arsBid: 8200 }), opts)).toBeNull();
+    expect(solveNominals(keel, pair('TMUS', { usdAsk: 5.62, arsBid: -1 }), opts)).toBeNull();
+  });
+
+  it('compré pero no alcanza para cerrar: nSell=0 → plan válido con arsOut=0 y pérdida', () => {
+    // usdBid minúsculo → usdObtained < sell.usdAsk → no se puede comprar ni 1 en USD.
+    const tinyUsd = pair('KEEL', { arsAsk: 1000, usdBid: 0.001 });
+    const plan = solveNominals(tinyUsd, tmus, {
+      budgetArs: 5_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan).not.toBeNull();
+    expect(plan.nBuy).toBeGreaterThanOrEqual(1);
+    expect(plan.nSell).toBe(0);
+    expect(plan.arsOut).toBe(0);
+    expect(plan.grossProfit).toBeCloseTo(-plan.arsSpent, 6);
+  });
+
+  it('expone los 4 precios unitarios de las puntas (plan autosuficiente)', () => {
+    const plan = solveNominals(keel, tmus, {
+      budgetArs: 150_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.buyArsAsk).toBe(45200); // fila 1: precio compra ARS
+    expect(plan.buyUsdBid).toBe(33.46); // fila 2: precio venta USD
+    expect(plan.sellUsdAsk).toBe(5.62); // fila 3: precio compra USD
+    expect(plan.sellArsBid).toBe(8200); // fila 4: precio venta ARS
+  });
+
+  it('el floor es estable ante ruido de punto flotante (0.3/0.1 = 3, no 2)', () => {
+    // 1 * 0.3 = 0.3 ; 0.3 / 0.1 = 2.9999999999999996 en IEEE-754 → floor naïve daría 2.
+    const buyFloat = pair('XX', { arsAsk: 1000, usdBid: 0.3 });
+    const sellFloat = pair('YY', { usdAsk: 0.1, arsBid: 1000 });
+    const plan = solveNominals(buyFloat, sellFloat, {
+      budgetArs: 1000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan.nBuy).toBe(1);
+    expect(plan.usdObtained).toBeCloseTo(0.3, 9);
+    expect(plan.nSell).toBe(3); // floor(0.3/0.1) corregido = 3
+  });
+
+  it('par consigo mismo (buy === sell): plan válido, gross ≤ 0 (comprar y vender el mismo libro)', () => {
+    const same = pair('AAPL', { arsAsk: 1010, arsBid: 1000, usdAsk: 0.7, usdBid: 0.69 });
+    const plan = solveNominals(same, same, {
+      budgetArs: 1_000_000,
+      commissionPct: 0,
+      usdSuffix: 'D',
+    })!;
+    expect(plan).not.toBeNull();
+    // comprar al ask y vender al bid el mismo instrumento → nunca ganás.
+    expect(plan.grossProfit).toBeLessThanOrEqual(0);
+  });
+
+  it('no muta los ArbPair de entrada', () => {
+    const buySnap = { ...keel };
+    const sellSnap = { ...tmus };
+    solveNominals(keel, tmus, { budgetArs: 150_000, commissionPct: 1, usdSuffix: 'D' });
+    expect(keel).toEqual(buySnap);
+    expect(tmus).toEqual(sellSnap);
   });
 });
 

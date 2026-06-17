@@ -63,6 +63,50 @@ export interface TradeResult {
   tradeableUsd: number;
 }
 
+/**
+ * Plan de nominales ENTEROS a operar en el broker, derivado de un presupuesto
+ * en ARS. A diferencia de `TradeResult` (cantidades fraccionarias), acá cada
+ * compra se redondea con `floor` al dinero disponible y la segunda pata se
+ * financia con los dólares REALMENTE obtenidos en la primera. Espeja las 4
+ * acciones del broker del ejercicio de arbitraje (Arbitrage.xlsx).
+ */
+export interface NominalsPlan {
+  // Identidad de las patas / tickers de las 4 acciones del broker
+  buyBase: string;       // buy.base
+  buyArsTicker: string;  // = buy.base   — fila 1: lo que COMPRO en pesos
+  sellUsdTicker: string; // buy.base + sufijo — fila 2: lo que VENDO en dólares
+  buyUsdTicker: string;  // sell.base + sufijo — fila 3: lo que COMPRO en dólares
+  sellBase: string;      // = sell.base  — fila 4: lo que VENDO en pesos
+
+  // Precios unitarios de cada acción (el plan es autosuficiente para la UI)
+  buyArsAsk: number;     // fila 1: precio al que compro en ARS  (buy.arsAsk)
+  buyUsdBid: number;     // fila 2: precio al que vendo en USD   (buy.usdBid)
+  sellUsdAsk: number;    // fila 3: precio al que compro en USD  (sell.usdAsk)
+  sellArsBid: number;    // fila 4: precio al que vendo en ARS   (sell.arsBid)
+
+  // Paso 1 — compro CEDEAR en ARS
+  nBuy: number;          // nominales enteros comprados
+  arsSpent: number;      // nBuy * buy.arsAsk
+  arsLeftover: number;   // budgetArs - arsSpent ("no alcanza para otro nominal")
+
+  // Paso 2 — vendo su par en USD
+  usdObtained: number;   // nBuy * buy.usdBid
+
+  // Paso 3 — compro CEDEAR en USD (limitado por usdObtained, no por el budget)
+  nSell: number;         // nominales enteros comprados con usdObtained
+  usdSpent: number;      // nSell * sell.usdAsk
+  usdLeftover: number;   // usdObtained - usdSpent
+
+  // Paso 4 — vendo su par en ARS
+  arsOut: number;        // nSell * sell.arsBid
+
+  // Resultado realizado sobre los ENTEROS (medido contra arsSpent, no el budget)
+  commissionPct: number;
+  grossProfit: number;   // arsOut - arsSpent
+  netProfit: number;     // grossProfit - arsSpent * commissionPct/100
+  netPct: number;        // netProfit / arsSpent * 100
+}
+
 // Sufijo de ticker según tipo de dólar (MEP→D, CCL→C).
 export const SUFFIX: Record<DollarType, 'D' | 'C'> = { MEP: 'D', CCL: 'C' };
 
@@ -72,6 +116,7 @@ export const DEFAULTS = {
   commissionPct: 2,   // gastos/comisión estándar round-trip
   ciAdjustPct: 0.30,  // ajuste para estimar CI desde 24hs
   amountArs: 1_000_000,
+  budgetArs: 150_000, // presupuesto real "de bolsillo" para el solver de nominales enteros
   minUsdVol: 1000,    // volumen efectivo mínimo (USD) por punta para considerar un par
 } as const;
 
