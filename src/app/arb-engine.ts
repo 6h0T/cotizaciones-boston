@@ -288,10 +288,18 @@ export function solveNominals(
   const usdSpent = nSell * sell.usdAsk;
   const usdLeftover = usdObtained - usdSpent;
 
-  // Paso 4 — vendo el par en ARS.
+  // Paso 4 — vendo el par en ARS (sólo los nominales ENTEROS comprados en USD).
   const arsOut = nSell * sell.arsBid;
 
-  const grossProfit = arsOut - arsSpent;
+  // El floor de nSell deja USD ociosos. Comparar lo invertido (arsSpent) contra el
+  // ARS de MENOS dólares de los que se obtuvieron subestima la ganancia (puede dar
+  // pérdida falsa). Se valúa el sobrante USD al tipo de la pata vendedora —equivale
+  // a desplegar TODOS los dólares obtenidos en la 1.ª pata— y se suma a la salida.
+  const usdSellRate = sell.arsBid / sell.usdAsk; // validPrice ya garantizó usdAsk > 0
+  const usdLeftoverArs = usdLeftover * usdSellRate;
+  const arsOutFull = arsOut + usdLeftoverArs; // = usdObtained * usdSellRate
+
+  const grossProfit = arsOutFull - arsSpent;
   const netProfit = grossProfit - arsSpent * (commissionPct / 100);
   const netPct = arsSpent > 0 ? (netProfit / arsSpent) * 100 : 0;
 
@@ -313,6 +321,9 @@ export function solveNominals(
     usdSpent,
     usdLeftover,
     arsOut,
+    usdSellRate,
+    usdLeftoverArs,
+    arsOutFull,
     commissionPct,
     grossProfit,
     netProfit,

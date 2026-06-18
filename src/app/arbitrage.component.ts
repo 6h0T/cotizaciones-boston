@@ -170,90 +170,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
           }
         </div>
 
-        <!-- Nominales enteros a apretar en el broker (solver del presupuesto) -->
-        @if (selectedBuy() && selectedSell()) {
-          <div class="nominals">
-            <div class="nm-head">
-              <h3>Nominales a operar según tu presupuesto</h3>
-              <span class="nm-sub">Para un presupuesto de <strong>$ {{ fmt(budgetArs(), 0) }}</strong> ARS — cantidades enteras, la 2.ª pata se financia con los USD reales de la 1.ª.</span>
-            </div>
-
-            @if (nominalsPlan(); as plan) {
-              <table class="nm-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Acción</th>
-                    <th>Ticker</th>
-                    <th class="num">Precio</th>
-                    <th class="num">Nominales</th>
-                    <th class="num">Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="op-buy">
-                    <td class="ix">1</td>
-                    <td><span class="op">Compro</span> <span class="cur">ARS</span></td>
-                    <td><span class="tk">{{ plan.buyArsTicker }}</span></td>
-                    <td class="num">{{ fmt(plan.buyArsAsk, 2) }}</td>
-                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
-                    <td class="num">$ {{ fmt(plan.arsSpent, 2) }}</td>
-                  </tr>
-                  <tr class="op-sell">
-                    <td class="ix">2</td>
-                    <td><span class="op">Vendo</span> <span class="cur">USD</span></td>
-                    <td><span class="tk">{{ plan.sellUsdTicker }}</span></td>
-                    <td class="num">{{ fmt(plan.buyUsdBid, 4) }}</td>
-                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
-                    <td class="num">USD {{ fmt(plan.usdObtained, 2) }}</td>
-                  </tr>
-                  <tr class="op-buy">
-                    <td class="ix">3</td>
-                    <td><span class="op">Compro</span> <span class="cur">USD</span></td>
-                    <td><span class="tk">{{ plan.buyUsdTicker }}</span></td>
-                    <td class="num">{{ fmt(plan.sellUsdAsk, 4) }}</td>
-                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
-                    <td class="num">USD {{ fmt(plan.usdSpent, 2) }}</td>
-                  </tr>
-                  <tr class="op-sell">
-                    <td class="ix">4</td>
-                    <td><span class="op">Vendo</span> <span class="cur">ARS</span></td>
-                    <td><span class="tk">{{ plan.sellBase }}</span></td>
-                    <td class="num">{{ fmt(plan.sellArsBid, 2) }}</td>
-                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
-                    <td class="num">$ {{ fmt(plan.arsOut, 2) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div class="nm-foot">
-                <div class="nm-left">
-                  <span class="nm-lbl">Sobrante</span>
-                  <span class="nm-val">$ {{ fmt(plan.arsLeftover, 2) }} ARS</span>
-                  <span class="nm-sep">·</span>
-                  <span class="nm-val">USD {{ fmt(plan.usdLeftover, 2) }}</span>
-                  <span class="nm-note">no alcanza para otro nominal con el dinero disponible</span>
-                </div>
-                <div
-                  class="nm-prof"
-                  [class.pos]="plan.netProfit > 0"
-                  [class.neg]="plan.netProfit <= 0"
-                >
-                  <span class="nm-lbl">Ganancia neta (sobre lo invertido)</span>
-                  <span class="nm-pval">$ {{ fmt(plan.netProfit, 2) }}</span>
-                  <span class="nm-ppct">{{ fmt(plan.netPct, 3) }} %</span>
-                </div>
-              </div>
-            } @else {
-              <div class="nm-empty">
-                El presupuesto de $ {{ fmt(budgetArs(), 0) }} no alcanza para un nominal de
-                <b>{{ selectedBuy()!.base }}</b> a $ {{ fmt(selectedBuy()!.arsAsk, 2) }}
-                (o el libro no tiene profundidad). Subí el presupuesto.
-              </div>
-            }
-          </div>
-        }
-
         <div class="grid">
           <!-- Compro USD -->
           <div class="card buy">
@@ -341,72 +257,99 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
             }
           </div>
 
-          <!-- Resultado -->
-          <div
-            class="card result"
-            [class.profit]="(trade()?.netProfit ?? 0) > 0"
-            [class.loss]="(trade()?.netProfit ?? 0) < 0"
-          >
-            <h3>3. Resultado del trade</h3>
-            @if (trade(); as t) {
-              @if (t.netProfit > 0) {
-              <div class="steps">
-                <div class="step">
-                  <span class="lbl">Compro CEDEAR ARS</span>
-                  <span class="val">{{ fmt(t.n1, 4) }} unid.</span>
-                </div>
-                <div class="step">
-                  <span class="lbl">Vendo CEDEAR USD</span>
-                  <span class="val">USD {{ fmt(t.usdMid, 2) }}</span>
-                </div>
-                <div class="step">
-                  <span class="lbl">Compro CEDEAR USD</span>
-                  <span class="val">{{ fmt(t.n2, 4) }} unid.</span>
-                </div>
-                <div class="step">
-                  <span class="lbl">Vendo CEDEAR ARS</span>
-                  <span class="val">$ {{ fmt(t.arsOut, 2) }}</span>
-                </div>
-                <hr />
-                <div class="step">
-                  <span class="lbl">Ganancia bruta</span>
-                  <span class="val">$ {{ fmt(t.grossProfit, 2) }}</span>
-                </div>
-                <div class="step">
-                  <span class="lbl">Rendimiento bruto</span>
-                  <span class="val">{{ fmt(t.grossPct, 3) }} %</span>
-                </div>
-                <div class="step muted">
-                  <span class="lbl">Comisión / gastos</span>
-                  <span class="val">− {{ fmt(t.commissionPct, 2) }} %</span>
-                </div>
-                <hr />
-                <div class="step net">
-                  <span class="lbl">Ganancia NETA</span>
-                  <span class="val">$ {{ fmt(t.netProfit, 2) }}</span>
-                </div>
-                <div class="step net big-net">
-                  <span class="lbl">Rendimiento NETO</span>
-                  <span class="val">{{ fmt(t.netPct, 3) }} %</span>
-                </div>
-              </div>
+        </div>
 
-              <p class="disclaimer">
-                Neto = bruto menos {{ fmt(t.commissionPct, 2) }} % de comisión/gastos.
-                No incluye derechos de mercado, parking ni impuestos.
-                Operación válida sólo hasta el volumen operable real (mínimo de ambas puntas).
-              </p>
-              } @else {
-              <div class="no-arb">
-                <strong>No hay oportunidad rentable ahora.</strong>
-                <span>El mejor par da un neto de {{ fmt(t.netPct, 3) }} % tras {{ fmt(t.commissionPct, 2) }} % de comisión. Esperá a que el spread se abra.</span>
+        <!-- Cuenta total: el ejercicio de arbitraje con nominales enteros (Arbitrage.xlsx).
+             Ganancia = pesos vendidos − pesos comprados; sin valuar el sobrante en USD. -->
+        @if (selectedBuy() && selectedSell()) {
+          <div class="nominals total">
+            <div class="nm-head">
+              <h3>3. Resultado del trade · cuenta total</h3>
+              <span class="nm-sub">Ejercicio con nominales enteros para un presupuesto de <strong>$ {{ fmt(budgetArs(), 0) }}</strong> ARS. La 2.ª pata se financia con los USD reales de la 1.ª. La <em>Ganancia</em> se mide contra lo invertido (no el presupuesto) y despliega <em>todos</em> los dólares obtenidos: el sobrante en USD se valúa al tipo de la pata vendedora y suma.</span>
+            </div>
+
+            @if (nominalsPlan(); as plan) {
+              <table class="nm-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Acción</th>
+                    <th>Ticker</th>
+                    <th class="num">Precio</th>
+                    <th class="num">Nominales</th>
+                    <th class="num">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="op-buy">
+                    <td class="ix">1</td>
+                    <td><span class="op">Compro</span> <span class="cur">ARS</span></td>
+                    <td><span class="tk">{{ plan.buyArsTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.buyArsAsk, 2) }}</td>
+                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
+                    <td class="num">$ {{ fmt(plan.arsSpent, 2) }}</td>
+                  </tr>
+                  <tr class="op-sell">
+                    <td class="ix">2</td>
+                    <td><span class="op">Vendo</span> <span class="cur">USD</span></td>
+                    <td><span class="tk">{{ plan.sellUsdTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.buyUsdBid, 4) }}</td>
+                    <td class="num nom">{{ fmt(plan.nBuy, 0) }}</td>
+                    <td class="num">USD {{ fmt(plan.usdObtained, 2) }}</td>
+                  </tr>
+                  <tr class="op-buy">
+                    <td class="ix">3</td>
+                    <td><span class="op">Compro</span> <span class="cur">USD</span></td>
+                    <td><span class="tk">{{ plan.buyUsdTicker }}</span></td>
+                    <td class="num">{{ fmt(plan.sellUsdAsk, 4) }}</td>
+                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
+                    <td class="num">USD {{ fmt(plan.usdSpent, 2) }}</td>
+                  </tr>
+                  <tr class="op-sell">
+                    <td class="ix">4</td>
+                    <td><span class="op">Vendo</span> <span class="cur">ARS</span></td>
+                    <td><span class="tk">{{ plan.sellBase }}</span></td>
+                    <td class="num">{{ fmt(plan.sellArsBid, 2) }}</td>
+                    <td class="num nom">{{ fmt(plan.nSell, 0) }}</td>
+                    <td class="num">$ {{ fmt(plan.arsOut, 2) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="nm-foot">
+                <div class="nm-left">
+                  <span class="nm-lbl">Sobrante</span>
+                  <span class="nm-val">$ {{ fmt(plan.arsLeftover, 2) }} ARS</span>
+                  <span class="nm-note">no entra al trade</span>
+                  <span class="nm-sep">·</span>
+                  <span class="nm-val">USD {{ fmt(plan.usdLeftover, 2) }}</span>
+                  <span class="nm-note">valuado a $ {{ fmt(plan.usdSellRate, 2) }}/USD = $ {{ fmt(plan.usdLeftoverArs, 2) }} (suma a la ganancia)</span>
+                </div>
+                <div
+                  class="nm-prof"
+                  [class.pos]="plan.grossProfit > 0"
+                  [class.neg]="plan.grossProfit <= 0"
+                >
+                  <span class="nm-lbl">Ganancia</span>
+                  <span class="nm-pmain">
+                    <span class="nm-pval">$ {{ fmt(plan.grossProfit, 2) }}</span>
+                    <span class="nm-ppct">{{ fmt(plan.grossProfit / plan.arsSpent * 100, 2) }} %</span>
+                  </span>
+                  <span class="nm-net">recibís $ {{ fmt(plan.arsOutFull, 2) }} (incl. sobrante USD) − invertís $ {{ fmt(plan.arsSpent, 2) }}</span>
+                  @if (commissionPct() > 0) {
+                    <span class="nm-net">tras {{ fmt(commissionPct(), 2) }} % comisión: $ {{ fmt(plan.netProfit, 2) }} · {{ fmt(plan.netPct, 2) }} %</span>
+                  }
+                </div>
               </div>
-              }
             } @else {
-              <div class="empty">No hay par operable para calcular el resultado.</div>
+              <div class="nm-empty">
+                El presupuesto de $ {{ fmt(budgetArs(), 0) }} no alcanza para un nominal de
+                <b>{{ selectedBuy()!.base }}</b> a $ {{ fmt(selectedBuy()!.arsAsk, 2) }}
+                (o el libro no tiene profundidad). Subí el presupuesto.
+              </div>
             }
           </div>
-        </div>
+        }
 
         <div class="table-wrap">
           <table>
@@ -657,14 +600,16 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .nm-left .nm-val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
     .nm-left .nm-sep { color: var(--line); }
     .nm-left .nm-note { font-size: 11px; color: var(--ink-3); font-style: italic; }
-    .nm-prof { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px; border-radius: var(--r); }
+    .nm-prof { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 8px 14px; border-radius: var(--r); }
     .nm-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
     .nm-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
     .nm-prof .nm-lbl {
       font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
     }
+    .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; }
     .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
     .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+    .nm-prof .nm-net { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
     .nm-prof.pos .nm-pval, .nm-prof.pos .nm-ppct { color: var(--pos-strong); }
     .nm-prof.neg .nm-pval, .nm-prof.neg .nm-ppct { color: var(--neg-strong); }
 

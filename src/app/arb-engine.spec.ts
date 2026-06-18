@@ -410,10 +410,15 @@ describe('solveNominals', () => {
     expect(plan.nSell).toBe(17); // floor(100.38/5.62) = 17, NO 18
     expect(plan.usdSpent).toBeCloseTo(95.54, 6); // 17 * 5.62
     expect(plan.usdLeftover).toBeCloseTo(4.84, 2);
-    // Paso 4 — vendo TMUS en ARS
+    // Paso 4 — vendo TMUS en ARS (sólo los 17 enteros)
     expect(plan.arsOut).toBeCloseTo(139_400, 6); // 17 * 8200
-    // Resultado realizado sobre los enteros
-    expect(plan.grossProfit).toBeCloseTo(3_800, 6); // 139400 - 135600
+    // El sobrante USD (4.84) se valúa al tipo de la pata vendedora (8200/5.62)
+    // y suma a la salida → equivale a desplegar los 100.38 USD completos.
+    expect(plan.usdSellRate).toBeCloseTo(8200 / 5.62, 6);
+    expect(plan.usdLeftoverArs).toBeCloseTo(4.84 * (8200 / 5.62), 2);
+    expect(plan.arsOutFull).toBeCloseTo(100.38 * (8200 / 5.62), 2); // ≈ 146 461.92
+    // Ganancia midiendo contra lo invertido (135 600), contando el sobrante USD.
+    expect(plan.grossProfit).toBeCloseTo(100.38 * (8200 / 5.62) - 135_600, 2); // ≈ 10 861.92
   });
 
   it('expone los 4 tickers de las acciones del broker', () => {
@@ -508,7 +513,10 @@ describe('solveNominals', () => {
     expect(plan.nBuy).toBeGreaterThanOrEqual(1);
     expect(plan.nSell).toBe(0);
     expect(plan.arsOut).toBe(0);
-    expect(plan.grossProfit).toBeCloseTo(-plan.arsSpent, 6);
+    // Todo el USD queda como sobrante; su valor (usdObtained * tipo de venta) es
+    // ínfimo frente a lo invertido → la operación es una pérdida clara.
+    expect(plan.usdLeftover).toBeCloseTo(plan.usdObtained, 9);
+    expect(plan.grossProfit).toBeLessThan(0);
   });
 
   it('expone los 4 precios unitarios de las puntas (plan autosuficiente)', () => {

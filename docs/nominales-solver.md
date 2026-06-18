@@ -50,17 +50,25 @@ Pasos:
 4) arsOut = nSell * sell.arsBid                   // pesos de salida
 ```
 
-Ganancia realizada sobre los enteros (no sobre el presupuesto teórico):
+Ganancia: se despliegan TODOS los dólares obtenidos en la 1.ª pata. El `floor`
+de `nSell` deja USD ociosos (`usdLeftover`); valuarlos al tipo de la pata
+vendedora equivale a desplegarlos y evita subestimar la ganancia (comparar lo
+invertido contra el ARS de MENOS dólares de los que se obtuvieron da pérdidas
+falsas).
 
 ```
-grossProfit = arsOut - arsSpent
-netProfit   = grossProfit - arsSpent * (commissionPct / 100)
-netPct      = arsSpent > 0 ? (netProfit / arsSpent) * 100 : 0
+usdSellRate    = sell.arsBid / sell.usdAsk      // ARS por USD en la pata vendedora
+usdLeftoverArs = usdLeftover * usdSellRate       // valor en ARS del sobrante USD
+arsOutFull     = arsOut + usdLeftoverArs          // = usdObtained * usdSellRate
+grossProfit    = arsOutFull - arsSpent
+netProfit      = grossProfit - arsSpent * (commissionPct / 100)
+netPct         = arsSpent > 0 ? (netProfit / arsSpent) * 100 : 0
 ```
 
 > Nota de diseño: la ganancia se mide contra `arsSpent` (lo efectivamente
 > invertido), no contra `budgetArs`, porque el `arsLeftover` nunca entró al
-> trade. Esto difiere de `computeTrade`, que usa el monto teórico completo.
+> trade. El `usdLeftover` SÍ entra (valuado a `usdSellRate`), porque son dólares
+> que ya tenés. Esto difiere de `computeTrade`, que usa el monto teórico completo.
 
 **Por qué el paso 3 usa los USD obtenidos y no el presupuesto** (caso canónico):
 con $150.000 y TMUS @ 8200, `floor(150000/8200)=18` sería **incorrecto**; el
@@ -177,8 +185,11 @@ Esperado:
 - `usdObtained === 100.38`  (3 × 33.46)
 - `nSell === 17`  (floor(100.38 / 5.62) = 17, **no** 18)
 - `usdSpent === 95.54`, `usdLeftover ≈ 4.84` (tolerancia float)
-- `arsOut === 139400`  (17 × 8200)
-- `grossProfit === 139400 - 135600 === 3800`
+- `arsOut === 139400`  (17 × 8200, sólo los enteros vendidos)
+- `usdSellRate === 8200 / 5.62`; `usdLeftoverArs ≈ 4.84 × 8200/5.62 ≈ 7061.92`
+- `arsOutFull ≈ 100.38 × 8200/5.62 ≈ 146461.92`  (desplegar los 100.38 USD)
+- `grossProfit ≈ 146461.92 - 135600 ≈ 10861.92`  (cuenta el sobrante USD; NO 3800,
+  que era el cálculo naïve del Excel sin valuar el sobrante)
 
 ### Edge cases
 1. **Presupuesto insuficiente para 1 nominal**: `budgetArs = 40000`, `buy.arsAsk

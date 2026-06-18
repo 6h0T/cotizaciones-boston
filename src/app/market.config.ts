@@ -98,11 +98,19 @@ export interface NominalsPlan {
   usdLeftover: number;   // usdObtained - usdSpent
 
   // Paso 4 — vendo su par en ARS
-  arsOut: number;        // nSell * sell.arsBid
+  arsOut: number;        // nSell * sell.arsBid (sólo los nominales ENTEROS vendidos)
 
-  // Resultado realizado sobre los ENTEROS (medido contra arsSpent, no el budget)
+  // Sobrante USD desplegado: el floor de nSell deja dólares ociosos; se valúan al
+  // tipo de cambio de la pata vendedora para no subestimar la ganancia (equivale a
+  // desplegar TODOS los dólares obtenidos en la 1.ª pata).
+  usdSellRate: number;   // sell.arsBid / sell.usdAsk — ARS por USD en la pata vendedora
+  usdLeftoverArs: number;// usdLeftover * usdSellRate — valor en ARS del sobrante USD
+  arsOutFull: number;    // arsOut + usdLeftoverArs (= usdObtained * usdSellRate)
+
+  // Resultado medido contra lo realmente invertido (arsSpent, no el budget),
+  // contando el sobrante en dólares (arsOutFull, no arsOut).
   commissionPct: number;
-  grossProfit: number;   // arsOut - arsSpent
+  grossProfit: number;   // arsOutFull - arsSpent (cuenta el sobrante USD)
   netProfit: number;     // grossProfit - arsSpent * commissionPct/100
   netPct: number;        // netProfit / arsSpent * 100
 }
