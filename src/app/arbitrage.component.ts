@@ -136,40 +136,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
           </div>
         }
 
-        <!-- Auto-selección + volumen operable resumido por tipo de operación -->
-        <div class="auto-banner">
-          @if (selectedBuy(); as b) {
-            <div class="auto-pill buy">
-              <span class="auto-action">Comprás CEDEAR</span>
-              <span class="auto-ticker">{{ b.base }}</span>
-              <span class="auto-quote">
-                <span class="auto-rate">$ {{ fmt(b.dolarVenta, 2) }}<span class="auto-unit">/USD</span></span>
-                <span class="auto-vol">{{ fmt(volBuyUnits(b), 0) }} u. · {{ fmt(volBuy(b), 0) }} USD</span>
-              </span>
-            </div>
-          }
-          @if (selectedSell(); as s) {
-            <div class="auto-pill sell">
-              <span class="auto-action">Vendés CEDEAR</span>
-              <span class="auto-ticker">{{ s.base }}</span>
-              <span class="auto-quote">
-                <span class="auto-rate">$ {{ fmt(s.dolarCompra, 2) }}<span class="auto-unit">/USD</span></span>
-                <span class="auto-vol">{{ fmt(volSellUnits(s), 0) }} u. · {{ fmt(volSell(s), 0) }} USD</span>
-              </span>
-            </div>
-          }
-          @if (trade(); as t) {
-            <div class="auto-operable">
-              <span class="ao-lbl">Operable real (mín. de ambas puntas)</span>
-              <span class="ao-units">{{ fmt(t.tradeableUnits, 0) }} u.</span>
-              <span class="ao-sep">·</span>
-              <span class="ao-mny">$ {{ fmt(t.tradeableArs, 0) }} ARS</span>
-              <span class="ao-sep">·</span>
-              <span class="ao-mny">USD {{ fmt(t.tradeableUsd, 2) }}</span>
-            </div>
-          }
-        </div>
-
         <div class="grid">
           <!-- Compro USD -->
           <div class="card buy">
@@ -189,6 +155,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
             @if (selectedBuy(); as b) {
               <div class="card-body">
+                <div class="card-ticker">{{ b.base }}</div>
                 <div class="row">
                   <span>Precio de compra <em class="tk">{{ b.base }}</em></span>
                   <span class="pv">
@@ -232,6 +199,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
             @if (selectedSell(); as s) {
               <div class="card-body">
+                <div class="card-ticker">{{ s.base }}</div>
                 <div class="row">
                   <span>Precio de compra <em class="tk">{{ usdTicker(s.base) }}</em></span>
                   <span class="pv">
@@ -646,6 +614,14 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     }
     .card select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
     .card-body { margin-top: 12px; }
+    /* Ticker protagonista: el CEDEAR/acción que se va a operar en esta punta. */
+    .card-ticker {
+      font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+      letter-spacing: -0.01em; line-height: 1; color: var(--ink);
+      padding-bottom: 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line);
+    }
+    .card.buy .card-ticker { color: var(--accent-2); }
+    .card.sell .card-ticker { color: var(--warn-strong); }
     .row {
       display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0;
       font-size: 12px; color: var(--ink-2);
