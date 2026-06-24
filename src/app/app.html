@@ -52,7 +52,7 @@
     <label class="rate" title="Intervalo de refresco">
       <input
         type="number"
-        min="3"
+        min="1"
         max="300"
         [ngModel]="intervalSec()"
         (ngModelChange)="intervalSec.set($event); onIntervalChange()"
