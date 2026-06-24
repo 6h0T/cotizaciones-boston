@@ -120,7 +120,7 @@ export const SUFFIX: Record<DollarType, 'D' | 'C'> = { MEP: 'D', CCL: 'C' };
 
 // ── Defaults editables (la UI puede sobreescribirlos) ───────────────────────
 export const DEFAULTS = {
-  refreshSec: 3,      // refresco por defecto
+  refreshSec: 1,      // refresco por defecto (feeds rápidos; t0 se auto-regula)
   commissionPct: 2,   // gastos/comisión estándar round-trip
   ciAdjustPct: 0.30,  // ajuste para estimar CI desde 24hs
   amountArs: 1_000_000,

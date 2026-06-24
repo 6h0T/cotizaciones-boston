@@ -6,7 +6,7 @@ import { forkJoin, Subscription, timer } from 'rxjs';
 import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
-import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, iolCedearsUrl } from './market.config';
+import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, iolCedearsUrl } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
 
@@ -95,6 +95,8 @@ export class App implements OnInit, OnDestroy {
   };
 
   private sub?: Subscription;
+  // Guard del burst CI: evita encolar bursts t0 cuando el anterior sigue en vuelo.
+  private t0InFlight = false;
 
   // ArbTab activa, o null si la pestaña activa es una data tab.
   activeArbTab = computed<ArbTab | null>(() => {
@@ -178,6 +180,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   refreshAll() {
+    // Dos ciclos independientes: los feeds rápidos no esperan al burst CI lento.
+    this.refreshFast();
+    this.refreshT0();
+  }
+
+  // Feeds rápidos: data912, dólar e IOL 24hs (t1 = 1 sola request c/u). Renderiza
+  // en cuanto llegan, sin bloquearse por el burst CI (que va en refreshT0()).
+  private refreshFast() {
     if (this.loading()) return;
     this.loading.set(true);
     const fetchable = PANELS.filter((p) => !!p.url);
@@ -189,23 +199,21 @@ export class App implements OnInit, OnDestroy {
         )
       )
     );
-    // IOL: precios reales por plazo (t0=CI, t1=24hs). Si falla, fallback a data912.
-    const iolCall = (s: Settlement, id: string) =>
-      this.http.get<CedearRow[]>(iolCedearsUrl(s)).pipe(
-        map((rows) => ({ id, rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
-        catchError(() => of({ id, rows: [] as CedearRow[], error: 'iol' as string | null }))
-      );
-    calls.push(iolCall('CI', '__iol_t0') as any, iolCall('H24', '__iol_t1') as any);
+    // IOL 24hs (t1 = panel completo). Si falla, fallback a data912.
+    calls.push(
+      this.http.get<CedearRow[]>(iolCedearsUrl('H24')).pipe(
+        map((rows) => ({ id: '__iol_t1', rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
+        catchError(() => of({ id: '__iol_t1', rows: [] as CedearRow[], error: 'iol' as string | null }))
+      ) as any
+    );
 
     forkJoin(calls).subscribe((results) => {
       const dataAcc = { ...this.data() };
       const errAcc = { ...this.errors() };
       const tsAcc = { ...this.lastUpdated() };
       const now = new Date();
-      let iolT0: CedearRow[] = [];
       let iolT1: CedearRow[] = [];
       for (const r of results) {
-        if (r.id === '__iol_t0') { iolT0 = (r.rows as CedearRow[]) ?? []; continue; }
         if (r.id === '__iol_t1') { iolT1 = (r.rows as CedearRow[]) ?? []; continue; }
         if (r.error) {
           errAcc[r.id] = r.error;
@@ -215,18 +223,36 @@ export class App implements OnInit, OnDestroy {
           tsAcc[r.id] = now;
         }
       }
-      // Fallback por plazo: IOL si trajo filas, si no el libro de data912 ('cedears').
+      // Fallback 24hs: IOL si trajo filas, si no el libro de data912 ('cedears').
       const data912 = (dataAcc['cedears'] as CedearRow[]) ?? [];
-      const t0Real = iolT0.length > 0;
       const t1Real = iolT1.length > 0;
-      this.cedearsT0.set(t0Real ? iolT0 : data912);
       this.cedearsT1.set(t1Real ? iolT1 : data912);
-      this.iolSource.set({ t0: t0Real, t1: t1Real });
+      this.iolSource.update((s) => ({ ...s, t1: t1Real }));
 
       this.data.set(dataAcc);
       this.errors.set(errAcc);
       this.lastUpdated.set(tsAcc);
       this.loading.set(false);
+      this.runMonitor();
+    });
+  }
+
+  // Burst CI (t0 = cotización por símbolo): es el feed caro/lento. Se auto-regula
+  // — no relanza hasta que el burst anterior terminó, así corre al ritmo máximo
+  // que IOL sostiene sin encolar requests ni tapar a los feeds rápidos.
+  private refreshT0() {
+    if (this.t0InFlight) return;
+    this.t0InFlight = true;
+    this.http.get<CedearRow[]>(iolCedearsUrl('CI')).pipe(
+      map((rows) => (Array.isArray(rows) ? rows : [])),
+      catchError(() => of<CedearRow[]>([]))
+    ).subscribe((rows) => {
+      this.t0InFlight = false;
+      const t0Real = rows.length > 0;
+      // Fallback CI: IOL si trajo filas, si no el último libro de data912.
+      const data912 = (this.data()['cedears'] as CedearRow[]) ?? [];
+      this.cedearsT0.set(t0Real ? rows : data912);
+      this.iolSource.update((s) => ({ ...s, t0: t0Real }));
       this.runMonitor();
     });
   }
