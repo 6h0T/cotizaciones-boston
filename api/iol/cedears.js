@@ -25,9 +25,10 @@ const CI_MIN_USD = Number(process.env.IOL_CI_MIN_USD) || 500;
 const CI_TOP_PER_SUFFIX = Number(process.env.IOL_CI_TOP) || 30;
 const CI_CONCURRENCY = 20;
 
-// Cache corto del panel (las requests t0 y t1 llegan casi juntas cada ~3s;
-// el panel es idéntico para ambas, no hace falta bajarlo dos veces).
-const PANEL_TTL_MS = 2000;
+// Cache muy corto del panel: sólo deduplica requests del panel que caen casi
+// simultáneas (t1 + el panel que necesita el burst t0). Bajo a 500ms para no
+// agregar staleness: el panel es 1 sola request, no hace falta cachearlo más.
+const PANEL_TTL_MS = 500;
 let panelCache = { rows: null, exp: 0 };
 
 // Cache del token a nivel de módulo (persiste entre invocaciones "warm").
@@ -208,7 +209,9 @@ module.exports = async (req, res) => {
 
     // 24hs (o t2): el panel ya es ese libro.
     if (plazo !== 't0') {
-      res.setHeader('Cache-Control', 's-maxage=2, stale-while-revalidate=5');
+      // no-store: el CDN no debe servir cotizaciones viejas. La frescura manda
+      // sobre el ahorro de requests (era el mayor ofensor de latencia).
+      res.setHeader('Cache-Control', 'no-store');
       res.status(200).json(panel);
       return;
     }
@@ -220,7 +223,7 @@ module.exports = async (req, res) => {
 
     // Si el burst falló por completo, [] dispara el fallback (data912 estimado)
     // en el frontend en vez de mostrar un CI "real" vacío.
-    res.setHeader('Cache-Control', 's-maxage=3, stale-while-revalidate=6');
+    res.setHeader('Cache-Control', 'no-store');
     res.status(200).json(rows);
   } catch (e) {
     const status = (e && e.status) || 500;
