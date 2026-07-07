@@ -1,0 +1,85 @@
+<div class="mosaic">
+  @for (col of columns(); track $index) {
+    <div class="col">
+      @for (t of col; track t.id) {
+        @if (t.kind === 'dolar') {
+          <ng-container *ngTemplateOutlet="dolarTpl" />
+        } @else {
+          <ng-container *ngTemplateOutlet="tileTpl; context: { $implicit: t }" />
+        }
+      }
+    </div>
+  }
+</div>
+
+<ng-template #dolarTpl>
+  <div class="tile">
+    <div class="tile-head">
+      <span class="tile-name">Dólar</span>
+      <span class="tile-status" [class.err]="errors()['dolar']">{{ st('dolar') }}</span>
+      <button class="tile-more" (click)="openDetail.emit('dolar')">Ver todo →</button>
+    </div>
+
+    @if (errors()['dolar']) {
+      <div class="tile-error">No se pudo cargar: {{ errors()['dolar'] }}</div>
+    } @else {
+      <div class="dolar-rows">
+        @for (d of dolarRows(); track d.casa) {
+          <div class="dolar-row">
+            <div class="dolar-info">
+              <span class="dolar-casa">{{ d.label }}</span>
+              <span class="dolar-updated">actualizado {{ d.updated }}</span>
+            </div>
+            <div class="dolar-vals">
+              <span class="dolar-val">
+                <em>Compra</em>
+                <b class="num">{{ d.compra != null ? fmt(d.compra) : '—' }}</b>
+              </span>
+              <span class="dolar-val">
+                <em>Venta</em>
+                <b class="num">{{ d.venta != null ? fmt(d.venta) : '—' }}</b>
+              </span>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</ng-template>
+
+<ng-template #tileTpl let-t>
+  <div class="tile">
+    <div class="tile-head">
+      <span class="tile-name">{{ t.label }}</span>
+      <span class="tile-status" [class.err]="errors()[t.statusId]">{{ st(t.statusId) }}</span>
+      <button class="tile-more" (click)="openDetail.emit(t.detailId)">Ver todo →</button>
+    </div>
+
+    @if (errors()[t.statusId]) {
+      <div class="tile-error">No se pudo cargar: {{ errors()[t.statusId] }}</div>
+    } @else if (t.rows.length) {
+      <div class="tile-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Símbolo</th>
+              <th class="num">Último</th>
+              <th class="num">% Día</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of t.rows; track row.symbol) {
+              <tr>
+                <td>{{ row.symbol }}</td>
+                <td class="num">{{ fmt(lastPrice(row)) }}</td>
+                <td class="num pct" [class.pos]="pctDay(row) >= 0" [class.neg]="pctDay(row) < 0">{{ fmt(pctDay(row)) }}%</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="tile-empty">Sin datos.</div>
+    }
+  </div>
+</ng-template>

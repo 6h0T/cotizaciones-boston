@@ -70,59 +70,6 @@
   box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2);
 }
 
-/* ── Dropdown "Mercados" ──────────────────────────────────────────────────── */
-.dropdown { position: relative; }
-.drop-trigger {
-  border: 1px solid var(--line);
-  background: var(--surface);
-}
-.drop-trigger:hover { border-color: var(--line-2); }
-.drop-trigger.on {
-  color: var(--ink); font-weight: 600;
-  border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink);
-}
-.chev { transition: transform .18s cubic-bezier(.16,1,.3,1); opacity: .6; }
-.chev.up { transform: rotate(180deg); }
-
-.menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  left: 0;
-  min-width: 248px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
-  padding: 6px;
-  z-index: 40;
-  animation: menu-in .14s cubic-bezier(.16,1,.3,1);
-}
-@keyframes menu-in {
-  from { opacity: 0; transform: translateY(-4px) scale(.98); }
-  to   { opacity: 1; transform: none; }
-}
-.menu-item {
-  width: 100%;
-  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
-  padding: 8px 10px;
-  border: 0; background: transparent;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-ui);
-}
-.menu-item:hover { background: var(--surface-2); }
-.menu-item.on { background: var(--accent-sf); }
-.menu-item.on .mi-label { color: var(--accent-2); }
-.mi-label { font-size: 13px; font-weight: 500; color: var(--ink); }
-.mi-status {
-  font-family: var(--font-mono);
-  font-size: 10.5px; color: var(--ink-3); white-space: nowrap;
-}
-.mi-status.err { color: var(--neg); }
-
-.backdrop { position: fixed; inset: 0; z-index: 20; }
-
 /* ── Controles (derecha, misma altura) ────────────────────────────────────── */
 .controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
@@ -196,6 +143,13 @@
 }
 .crumb { display: inline-flex; align-items: baseline; gap: 12px; min-width: 0; }
 .crumb strong { font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+.back-btn {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+  padding: 4px 2px; transition: color .12s;
+}
+.back-btn:hover { color: var(--accent-2); }
+.back-btn:active { transform: translateY(1px); }
 .status-cap {
   font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap;
 }

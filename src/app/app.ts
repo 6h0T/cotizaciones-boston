@@ -6,6 +6,7 @@ import { forkJoin, Subscription, timer } from 'rxjs';
 import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
+import { CotizacionesComponent } from './cotizaciones.component';
 import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, iolCedearsUrl } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
@@ -33,20 +34,13 @@ const PANELS: PanelDef[] = [
 const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
 const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
 
-// Entrada unificada de la nav: arb tabs primero, luego data tabs.
-type NavTab =
-  | { kind: 'arb'; id: string; label: string; short: string; def: ArbTab }
-  | { kind: 'data'; id: string; label: string };
-
-const NAV_TABS: NavTab[] = [
-  ...ARB_TABS.map((t) => ({ kind: 'arb' as const, id: t.id, label: t.label, short: t.short, def: t })),
-  ...PANELS.map((p) => ({ kind: 'data' as const, id: p.id, label: p.label })),
-];
+// Vista de primer nivel del navbar.
+type View = 'arbitraje' | 'cotizaciones';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, ArbitrageComponent],
+  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -54,9 +48,15 @@ export class App implements OnInit, OnDestroy {
   private http = inject(HttpClient);
 
   panels = PANELS;
-  navTabs = NAV_TABS;
   arbTabs = ARB_TABS;
   activePanel = signal<string>(ARB_TABS[0].id);
+
+  // Nav de primer nivel (Arbitraje / Cotizaciones) y, dentro de Cotizaciones,
+  // el casillero de detalle abierto ("Ver todo"); null = mosaico.
+  view = signal<View>('arbitraje');
+  detailPanel = signal<string | null>(null);
+  // Wrapper para pasar panelStatus como input a <app-cotizaciones>.
+  statusFn = (id: string) => this.panelStatus(id);
 
   // panelId -> rows
   data = signal<Record<string, any[]>>({});
@@ -76,9 +76,6 @@ export class App implements OnInit, OnDestroy {
   cedearsT1 = signal<CedearRow[]>([]); // 24hs (IOL t1)
   // true = datos reales IOL para ese plazo; false = fallback data912.
   iolSource = signal<{ t0: boolean; t1: boolean }>({ t0: false, t1: false });
-
-  // Dropdown "Mercados" (agrupa los paneles de datos).
-  menuOpen = signal(false);
 
   // Monitor de oportunidades de arbitraje.
   alertsEnabled = signal<boolean>(true);
@@ -116,21 +113,24 @@ export class App implements OnInit, OnDestroy {
     return tab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
   });
 
-  // Panel de datos activo (null si la pestaña activa es de arbitraje).
-  activeDataPanel = computed<PanelDef | null>(() =>
-    this.panels.find((p) => p.id === this.activePanel()) ?? null
-  );
-
-  // Etiqueta y caption de estado del panel activo (para la toolbar).
-  activeTitle = computed<string>(() => {
-    const arb = this.activeArbTab();
-    if (arb) return arb.label;
-    return this.activeDataPanel()?.label ?? '';
+  // Título y estado de la subbar: sub-tab de arbitraje, o el casillero de
+  // Cotizaciones cuya vista detalle ("Ver todo") está abierta.
+  subbarTitle = computed<string>(() => {
+    if (this.view() === 'arbitraje') return this.activeArbTab()?.label ?? '';
+    const id = this.detailPanel();
+    if (!id) return '';
+    return this.panels.find((p) => p.id === id)?.label ?? '';
   });
-  activeStatus = computed<string>(() => this.panelStatus(this.activePanel()));
+  subbarStatus = computed<string>(() => {
+    if (this.view() === 'arbitraje') return this.panelStatus(this.activePanel());
+    const id = this.detailPanel();
+    return id ? this.panelStatus(id) : '';
+  });
 
-  activeRows = computed(() => {
-    const rows = this.data()[this.activePanel()] ?? [];
+  // Filas/columnas de la vista detalle (casillero abierto vía "Ver todo").
+  detailRows = computed(() => {
+    const id = this.detailPanel();
+    const rows = id ? (this.data()[id] ?? []) : [];
     const q = this.filter().trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
@@ -138,8 +138,9 @@ export class App implements OnInit, OnDestroy {
     );
   });
 
-  activeColumns = computed<string[]>(() => {
-    const rows = this.data()[this.activePanel()] ?? [];
+  detailColumns = computed<string[]>(() => {
+    const id = this.detailPanel();
+    const rows = id ? (this.data()[id] ?? []) : [];
     if (!rows.length) return [];
     const cols = new Set<string>();
     for (const r of rows.slice(0, 10)) Object.keys(r).forEach((k) => cols.add(k));
@@ -240,16 +241,24 @@ export class App implements OnInit, OnDestroy {
 
   setActive(id: string) {
     this.activePanel.set(id);
+    this.view.set('arbitraje');
     this.filter.set('');
-    this.menuOpen.set(false);
   }
 
-  toggleMenu() {
-    this.menuOpen.update((v) => !v);
+  setView(v: View) {
+    this.view.set(v);
+    this.detailPanel.set(null);
+    this.filter.set('');
   }
 
-  closeMenu() {
-    this.menuOpen.set(false);
+  openDetail(id: string) {
+    this.detailPanel.set(id);
+    this.filter.set('');
+  }
+
+  closeDetail() {
+    this.detailPanel.set(null);
+    this.filter.set('');
   }
 
   downloadXLSX() {

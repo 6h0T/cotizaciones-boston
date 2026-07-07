@@ -168,3 +168,18 @@ export function estimateCi(value: number, ciAdjustPct: number, side: 'compra' | 
 export function settlementLabel(s: Settlement): string {
   return s === 'CI' ? 'Contado Inmediato (T+0)' : '24 horas (T+1)';
 }
+
+// ── Composición del panel de acciones ARG "Líder" ───────────────────────────
+// data912 (`/api/data912/live/arg_stocks`) devuelve TODAS las acciones ARG en
+// un solo listado plano, sin campo de categoría/panel — no hay forma de
+// derivar "Panel Líder" desde el feed. Esta lista replica la categorización
+// real y pública de bostonam.com/cotizaciones/panel-lider (relevado
+// 2026-07-06): son los ~21 blue-chips que el mercado/la exchange define como
+// panel líder, no un recorte arbitrario. Panel General se arma en el cliente
+// como TODO lo que no está en esta lista (ver cotizaciones.component.ts) —
+// así cualquier ticker nuevo o no listado aquí no desaparece de la app.
+export const PANEL_LIDER: string[] = [
+  'ALUA', 'BBAR', 'BMA', 'BYMA', 'CEPU', 'COME', 'CRES', 'EDN', 'GGAL',
+  'IRSA', 'LOMA', 'MIRG', 'PAMP', 'SUPV', 'TECO2', 'TGNO4', 'TGSU2',
+  'TRAN', 'TXAR', 'VALO', 'YPFD',
+];

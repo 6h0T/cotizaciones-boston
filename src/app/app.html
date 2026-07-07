@@ -5,43 +5,24 @@
   </div>
 
   <nav class="nav">
-    <!-- Las 4 de arbitraje: control segmentado primario -->
+    <!-- Nav de primer nivel: Arbitraje / Cotizaciones -->
     <div class="seg">
-      @for (t of arbTabs; track t.id) {
-        <button
-          class="seg-btn"
-          [class.on]="activePanel() === t.id"
-          (click)="setActive(t.id)"
-        >{{ t.short }}</button>
-      }
+      <button class="seg-btn" [class.on]="view() === 'arbitraje'" (click)="setView('arbitraje')">Arbitraje</button>
+      <button class="seg-btn" [class.on]="view() === 'cotizaciones'" (click)="setView('cotizaciones')">Cotizaciones</button>
     </div>
 
-    <!-- Paneles de datos colapsados en un dropdown -->
-    <div class="dropdown">
-      <button
-        class="seg-btn drop-trigger"
-        [class.on]="!activeArbTab()"
-        (click)="toggleMenu()"
-      >
-        {{ activeArbTab() ? 'Mercados' : activeDataPanel()?.label }}
-        <svg class="chev" [class.up]="menuOpen()" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </button>
-
-      @if (menuOpen()) {
-        <div class="menu">
-          @for (p of panels; track p.id) {
-            <button
-              class="menu-item"
-              [class.on]="activePanel() === p.id"
-              (click)="setActive(p.id)"
-            >
-              <span class="mi-label">{{ p.label }}</span>
-              <span class="mi-status" [class.err]="errors()[p.id]">{{ panelStatus(p.id) }}</span>
-            </button>
-          }
-        </div>
-      }
-    </div>
+    <!-- Las 4 sub-tabs de arbitraje, solo visibles dentro de Arbitraje -->
+    @if (view() === 'arbitraje') {
+      <div class="seg">
+        @for (t of arbTabs; track t.id) {
+          <button
+            class="seg-btn"
+            [class.on]="activePanel() === t.id"
+            (click)="setActive(t.id)"
+          >{{ t.short }}</button>
+        }
+      </div>
+    }
   </nav>
 
   <div class="controls">
@@ -78,10 +59,6 @@
   </div>
 </header>
 
-@if (menuOpen()) {
-  <div class="backdrop" (click)="closeMenu()"></div>
-}
-
 @if (activeAlerts().length) {
   <div class="alert-bar" role="status" aria-live="polite">
     <span class="ab-title">Oportunidades &gt; 2% neto</span>
@@ -99,31 +76,36 @@
   </div>
 }
 
-<div class="subbar">
-  <div class="crumb">
-    <strong>{{ activeTitle() }}</strong>
-    <span class="status-cap" [class.err]="errors()[activePanel()]">{{ activeStatus() }}</span>
-    @if (paused()) {
-      <span class="pill warn">Snapshot congelado</span>
+@if (view() === 'arbitraje' || detailPanel()) {
+  <div class="subbar">
+    <div class="crumb">
+      @if (detailPanel()) {
+        <button class="back-btn" (click)="closeDetail()">← Cotizaciones</button>
+      }
+      <strong>{{ subbarTitle() }}</strong>
+      <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
+      @if (paused()) {
+        <span class="pill warn">Snapshot congelado</span>
+      }
+    </div>
+
+    @if (detailPanel()) {
+      <div class="subbar-tools">
+        <input
+          class="search"
+          type="text"
+          placeholder="Filtrar…"
+          [ngModel]="filter()"
+          (ngModelChange)="filter.set($event)"
+        />
+        <span class="count num">{{ detailRows().length }}</span>
+      </div>
     }
   </div>
-
-  @if (!activeArbTab()) {
-    <div class="subbar-tools">
-      <input
-        class="search"
-        type="text"
-        placeholder="Filtrar…"
-        [ngModel]="filter()"
-        (ngModelChange)="filter.set($event)"
-      />
-      <span class="count num">{{ activeRows().length }}</span>
-    </div>
-  }
-</div>
+}
 
 <section class="panel">
-  @if (activeArbTab()) {
+  @if (view() === 'arbitraje') {
     <app-arbitrage
       [cedearRows]="activeArbRows()"
       [dollarType]="activeArbTab()!.dollarType"
@@ -132,25 +114,25 @@
       [paused]="paused()"
       (pausedChange)="paused.set($event)"
     />
-  } @else {
-    @if (errors()[activePanel()]) {
-      <div class="error-box">No se pudo cargar: {{ errors()[activePanel()] }}</div>
+  } @else if (detailPanel(); as id) {
+    @if (errors()[id]) {
+      <div class="error-box">No se pudo cargar: {{ errors()[id] }}</div>
     }
 
-    @if (activeRows().length) {
+    @if (detailRows().length) {
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              @for (col of activeColumns(); track col) {
+              @for (col of detailColumns(); track col) {
                 <th [class.num]="col !== 'symbol' && col !== 'ticker'">{{ col }}</th>
               }
             </tr>
           </thead>
           <tbody>
-            @for (row of activeRows(); track $index) {
+            @for (row of detailRows(); track $index) {
               <tr>
-                @for (col of activeColumns(); track col) {
+                @for (col of detailColumns(); track col) {
                   <td [class.num]="col !== 'symbol' && col !== 'ticker'">{{ fmt(row[col]) }}</td>
                 }
               </tr>
@@ -161,6 +143,13 @@
     } @else {
       <div class="empty">Sin datos para mostrar.</div>
     }
+  } @else {
+    <app-cotizaciones
+      [data]="data()"
+      [errors]="errors()"
+      [status]="statusFn"
+      (openDetail)="openDetail($event)"
+    />
   }
 </section>
 

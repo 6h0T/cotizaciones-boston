@@ -318,44 +318,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
             }
           </div>
         }
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th class="num">ARS bid</th>
-                <th class="num">ARS ask</th>
-                <th class="num">USD bid</th>
-                <th class="num">USD ask</th>
-                <th class="num">$ Compra (vendo USD)</th>
-                <th class="num">$ Venta (compro USD)</th>
-                <th class="num">Vol USD compra</th>
-                <th class="num">Vol USD venta</th>
-                <th class="num">Spread %</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (p of pairsSorted(); track p.base) {
-                <tr
-                  [class.sel-buy]="p.base === selectedBuy()?.base"
-                  [class.sel-sell]="p.base === selectedSell()?.base"
-                >
-                  <td><strong>{{ p.base }}</strong></td>
-                  <td class="num">{{ fmt(p.arsBid, 2) }}</td>
-                  <td class="num">{{ fmt(p.arsAsk, 2) }}</td>
-                  <td class="num">{{ fmt(p.usdBid, 4) }}</td>
-                  <td class="num">{{ fmt(p.usdAsk, 4) }}</td>
-                  <td class="num">{{ fmt(p.dolarCompra, 2) }}</td>
-                  <td class="num">{{ fmt(p.dolarVenta, 2) }}</td>
-                  <td class="num" [class.vol-lo]="volBuy(p) < minUsdVol()" [class.vol-sel]="p.base === selectedBuy()?.base">{{ fmt(volBuy(p), 0) }}</td>
-                  <td class="num" [class.vol-lo]="volSell(p) < minUsdVol()" [class.vol-sel]="p.base === selectedSell()?.base">{{ fmt(volSell(p), 0) }}</td>
-                  <td class="num">{{ fmt(p.spreadPct, 3) }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
       }
     </div>
   `,
@@ -401,9 +363,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn);
       font-size: 12px;
     }
-    td.vol-lo { color: var(--ink-3); }
-    /* Vol operable de la punta elegida: resaltado para seguirlo aunque cambie cada segundo. */
-    td.vol-sel { font-weight: 700; color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 
     /* Congelar para operar */
     .freeze-btn {
@@ -543,8 +502,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .nm-table td.nom { font-size: 17px; font-weight: 700; color: var(--ink); }
 
     /* Codificación direccional estilo blotter: cada pata se lee por color en TODA
-       la fila (compra = azul acento, venta = ámbar), no sólo en una palabra. Mismos
-       tokens que la tabla de pares (.sel-buy/.sel-sell) → coherencia con el resto.
+       la fila (compra = azul acento, venta = ámbar), no sólo en una palabra.
        Washes muy tenues (off-white) para no romper la baja fatiga. */
     .nm-table tr.op-buy td  { background: var(--accent-sf); }
     .nm-table tr.op-sell td { background: var(--warn-bg); }
@@ -676,28 +634,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
     }
 
-    .table-wrap {
-      border: 1px solid var(--line); border-radius: var(--r-lg);
-      overflow: auto; max-height: 460px; background: var(--surface);
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-    thead { position: sticky; top: 0; z-index: 2; }
-    th {
-      text-align: left; padding: 9px 12px; background: var(--surface-2);
-      font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--ink-3); border-bottom: 1px solid var(--line); white-space: nowrap;
-    }
-    th.num, td.num { text-align: right; }
-    td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    td {
-      padding: 7px 12px; border-bottom: 1px solid var(--line);
-      white-space: nowrap; color: var(--ink);
-    }
-    td strong { font-family: var(--font-mono); font-weight: 600; }
-    tbody tr:hover td { background: var(--surface-2); }
-    tr.sel-buy td { background: var(--accent-sf); }
-    tr.sel-sell td { background: var(--warn-bg); }
-    tr.sel-buy.sel-sell td { background: var(--pos-bg); }
   `],
 })
 export class ArbitrageComponent {
@@ -726,8 +662,6 @@ export class ArbitrageComponent {
 
   // Re-expose helpers for the template
   settlementLabel = settlementLabel;
-  volBuy = buyLegUsd;
-  volSell = sellLegUsd;
   // Profundidad operable por punta en UNIDADES (misma convención que computeTrade).
   volBuyUnits = (p: ArbPair) => Math.min(p.qArsAsk, p.qUsdBid);
   volSellUnits = (p: ArbPair) => Math.min(p.qUsdAsk, p.qArsBid);
@@ -755,14 +689,6 @@ export class ArbitrageComponent {
       .filter(p => sellLegUsd(p) >= this.minUsdVol())
       .sort((a, b) => b.dolarCompra - a.dolarCompra)
   );
-
-  // Tabla: pares con al menos una punta operable al mínimo, ordenados por dolarVenta.
-  pairsSorted = computed(() => {
-    const min = this.minUsdVol();
-    return this.pairs()
-      .filter(p => buyLegUsd(p) >= min || sellLegUsd(p) >= min)
-      .sort((a, b) => a.dolarVenta - b.dolarVenta);
-  });
 
   // --- Auto-selection: mejor cotización CON volumen ≥ mínimo ----------------
   selectedBuy = computed<ArbPair | null>(() => {
