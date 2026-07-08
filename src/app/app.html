@@ -89,7 +89,7 @@
       }
     </div>
 
-    @if (detailPanel()) {
+    @if (detailPanel() && detailPanel() !== 'mapa-cedears') {
       <div class="subbar-tools">
         <input
           class="search"
@@ -114,6 +114,14 @@
       [paused]="paused()"
       (pausedChange)="paused.set($event)"
     />
+  } @else if (detailPanel() === 'mapa-cedears') {
+    @if (errors()['cedears']) {
+      <div class="error-box">No se pudo cargar: {{ errors()['cedears'] }}</div>
+    } @else {
+      <div class="heatmap-full">
+        <app-cedears-heatmap [rows]="data()['cedears']" [full]="true" />
+      </div>
+    }
   } @else if (detailPanel(); as id) {
     @if (errors()[id]) {
       <div class="error-box">No se pudo cargar: {{ errors()[id] }}</div>

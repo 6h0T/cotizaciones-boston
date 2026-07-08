@@ -189,6 +189,13 @@
   border: 1px solid var(--line); border-radius: var(--r-lg);
   overflow: auto; max-height: calc(100dvh - 230px); background: var(--surface);
 }
+
+/* Vista grande del mapa de calor de CEDEARs ("Ver todo"). */
+.heatmap-full {
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  overflow: hidden; background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 thead { position: sticky; top: 0; z-index: 2; }
 th {

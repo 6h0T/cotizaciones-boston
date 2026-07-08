@@ -7,6 +7,7 @@ import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
+import { CedearsHeatmapComponent } from './cedears-heatmap.component';
 import {
   ARB_TABS, DEFAULTS, ArbTab, CedearRow, iolCedearsUrl, bondType, noteType,
   INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
@@ -108,7 +109,7 @@ type View = 'arbitraje' | 'cotizaciones';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent],
+  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -198,12 +199,14 @@ export class App implements OnInit, OnDestroy {
     if (this.view() === 'arbitraje') return this.activeArbTab()?.label ?? '';
     const id = this.detailPanel();
     if (!id) return '';
+    if (id === 'mapa-cedears') return 'Mapa de calor — CEDEARs';
     return this.panels.find((p) => p.id === id)?.label ?? '';
   });
   subbarStatus = computed<string>(() => {
     if (this.view() === 'arbitraje') return this.panelStatus(this.activePanel());
     const id = this.detailPanel();
-    return id ? this.panelStatus(id) : '';
+    // El mapa de calor es una vista del feed de CEDEARs.
+    return id ? this.panelStatus(id === 'mapa-cedears' ? 'cedears' : id) : '';
   });
 
   // Filas/columnas de la vista detalle (casillero abierto vía "Ver todo").

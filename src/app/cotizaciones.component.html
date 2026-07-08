@@ -1,9 +1,10 @@
-<!-- Mapa de calor de CEDEARs: área = volumen, color = % día (divergente). -->
+<!-- Mapa de calor de CEDEARs: sectores, área = capitalización, color = % día.
+     "Ver todo" abre la versión grande con todas las empresas mapeadas. -->
 <div class="tile heat-tile">
   <div class="tile-head">
     <span class="tile-name">Mapa de calor — CEDEARs</span>
     <span class="tile-status" [class.err]="errors()['cedears']">{{ st('cedears') }}</span>
-    <button class="tile-more" (click)="openDetail.emit('cedears')">Ver todo →</button>
+    <button class="tile-more" (click)="openDetail.emit('mapa-cedears')">Ver todo →</button>
   </div>
   @if (errors()['cedears']) {
     <div class="tile-error">No se pudo cargar: {{ errors()['cedears'] }}</div>
