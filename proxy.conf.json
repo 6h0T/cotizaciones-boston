@@ -17,6 +17,12 @@
     "changeOrigin": true,
     "pathRewrite": { "^/api/bcra": "" }
   },
+  "/api/yahoo": {
+    "target": "https://query1.finance.yahoo.com",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/api/yahoo": "" }
+  },
   "/api/argentinadatos": {
     "target": "https://api.argentinadatos.com",
     "secure": true,

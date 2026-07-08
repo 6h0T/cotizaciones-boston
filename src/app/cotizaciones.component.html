@@ -1,3 +1,17 @@
+<!-- Mapa de calor de CEDEARs: área = volumen, color = % día (divergente). -->
+<div class="tile heat-tile">
+  <div class="tile-head">
+    <span class="tile-name">Mapa de calor — CEDEARs</span>
+    <span class="tile-status" [class.err]="errors()['cedears']">{{ st('cedears') }}</span>
+    <button class="tile-more" (click)="openDetail.emit('cedears')">Ver todo →</button>
+  </div>
+  @if (errors()['cedears']) {
+    <div class="tile-error">No se pudo cargar: {{ errors()['cedears'] }}</div>
+  } @else {
+    <app-cedears-heatmap [rows]="data()['cedears']" />
+  }
+</div>
+
 <div class="mosaic">
   @for (col of columns(); track $index) {
     <div class="col">
@@ -57,7 +71,7 @@
 
     @if (errors()[t.statusId]) {
       <div class="tile-error">No se pudo cargar: {{ errors()[t.statusId] }}</div>
-    } @else if (t.rows.length) {
+    } @else if (t.count) {
       <div class="tile-body">
         <table>
           <thead>
@@ -65,15 +79,28 @@
               <th>Símbolo</th>
               <th class="num">Último</th>
               <th class="num">% Día</th>
+              @if (t.withHist) {
+                <th class="num">% Sem.</th>
+                <th class="num">% Año</th>
+              }
             </tr>
           </thead>
           <tbody>
-            @for (row of t.rows; track row.symbol) {
-              <tr>
-                <td>{{ row.symbol }}</td>
-                <td class="num">{{ fmt(lastPrice(row)) }}</td>
-                <td class="num pct" [class.pos]="pctDay(row) >= 0" [class.neg]="pctDay(row) < 0">{{ fmt(pctDay(row)) }}%</td>
-              </tr>
+            @for (g of t.groups; track g.label) {
+              @if (g.label) {
+                <tr class="group-row"><td [attr.colspan]="t.withHist ? 5 : 3">{{ g.label }}</td></tr>
+              }
+              @for (row of g.rows; track row.symbol) {
+                <tr>
+                  <td>{{ row.symbol }}</td>
+                  <td class="num">{{ fmt(lastPrice(row)) }}</td>
+                  <td class="num pct" [class.pos]="pctDay(row) >= 0" [class.neg]="pctDay(row) < 0">{{ fmt(pctDay(row)) }}%</td>
+                  @if (t.withHist) {
+                    <td class="num pct" [ngClass]="pctClass(pctWeek(row))">{{ fmtPct(pctWeek(row)) }}</td>
+                    <td class="num pct" [ngClass]="pctClass(pctYear(row))">{{ fmtPct(pctYear(row)) }}</td>
+                  }
+                </tr>
+              }
             }
           </tbody>
         </table>

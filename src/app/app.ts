@@ -2,34 +2,102 @@ import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, Subscription, timer } from 'rxjs';
+import { forkJoin, Observable, Subscription, timer } from 'rxjs';
 import { catchError, map, of } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
-import { ARB_TABS, DEFAULTS, ArbTab, CedearRow, iolCedearsUrl } from './market.config';
+import {
+  ARB_TABS, DEFAULTS, ArbTab, CedearRow, iolCedearsUrl, bondType, noteType,
+  INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
+} from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
 
 interface PanelDef {
   id: string;
   label: string;
-  url?: string;
+  url?: string;    // fuente de FALLBACK (data912 / dolarapi)
+  iolUrl?: string; // fuente PRIMARIA (IOL vía serverless api/iol/panel.js)
   // optional transformer (e.g. dólar returns objects with nested fields)
   transform?: (raw: any) => any[];
 }
 
-// Panels de datos (cada uno con su url para el fetch).
+// Panels de datos. IOL es la fuente primaria (iolUrl); data912 queda como
+// fallback (url) si IOL falla o devuelve vacío. CEDEARs mantiene su propio
+// flujo IOL por plazo (api/iol/cedears.js); Dólar no existe en IOL.
+// 'indices' y 'etfs' no tienen url: se refrescan aparte desde Yahoo
+// (refreshIndices) porque IOL no los expone — ver nota en market.config.ts.
 const PANELS: PanelDef[] = [
-  { id: 'acciones',     label: 'Acciones ARG',  url: '/api/data912/live/arg_stocks' },
+  { id: 'acciones',     label: 'Acciones ARG',  url: '/api/data912/live/arg_stocks',  iolUrl: '/api/iol/panel?id=acciones' },
   { id: 'cedears',      label: 'CEDEARs',       url: '/api/data912/live/arg_cedears' },
-  { id: 'bonos',        label: 'Bonos',         url: '/api/data912/live/arg_bonds' },
-  { id: 'letras',       label: 'Letras',        url: '/api/data912/live/arg_notes' },
-  { id: 'ons',          label: 'Obligaciones',  url: '/api/data912/live/arg_corp' },
-  { id: 'opciones',     label: 'Opciones',      url: '/api/data912/live/arg_options' },
-  { id: 'usa',          label: 'Acciones USA',  url: '/api/data912/live/usa_stocks' },
+  { id: 'bonos',        label: 'Bonos',         url: '/api/data912/live/arg_bonds',   iolUrl: '/api/iol/panel?id=bonos' },
+  { id: 'letras',       label: 'Letras',        url: '/api/data912/live/arg_notes',   iolUrl: '/api/iol/panel?id=letras' },
+  { id: 'ons',          label: 'Obligaciones Negociables', url: '/api/data912/live/arg_corp', iolUrl: '/api/iol/panel?id=ons' },
+  { id: 'opciones',     label: 'Opciones',      url: '/api/data912/live/arg_options', iolUrl: '/api/iol/panel?id=opciones' },
+  { id: 'indices',      label: 'Índices' },
+  { id: 'etfs',         label: 'ETFs' },
   { id: 'dolar',        label: 'Dólar',         url: '/api/dolar/v1/dolares' },
 ];
+
+// Los índices/ETFs no necesitan el ritmo de 1s de los feeds locales.
+const YAHOO_REFRESH_MS = 30_000;
+
+// Último close cuyo timestamp (epoch s) sea <= hoy - daysBack; la serie viene
+// diaria y ascendente. Fallback al primer close de la serie (rango 1y): sirve
+// para "% Año" cuando el primer punto cae unos días después del target.
+function refCloseAt(ts: number[], close: (number | null)[], daysBack: number): number | null {
+  const target = Date.now() / 1000 - daysBack * 86_400;
+  let ref: number | null = null;
+  let first: number | null = null;
+  for (let i = 0; i < ts.length; i++) {
+    const c = close[i];
+    if (c == null || !(+c > 0)) continue;
+    if (first == null) first = +c;
+    if (ts[i] > target) break;
+    ref = +c;
+  }
+  return ref ?? first;
+}
+
+// Resultado de un fetch de panel (IOL o fallback) en refreshFast.
+interface FeedResult {
+  id: string;
+  rows: any[];
+  error: string | null;
+  iol?: boolean; // true = filas de IOL; false = fallback data912; undefined = n/a
+}
+
+// Etiquetas en español para las columnas crudas de los feeds (vista detalle
+// "Ver todo" y su export). Lo no mapeado se muestra tal cual.
+const COL_LABELS: Record<string, string> = {
+  symbol: 'Símbolo',
+  ticker: 'Ticker',
+  tipo: 'Tipo',
+  desc: 'Descripción',
+  q_bid: 'Cant. Compra',
+  px_bid: 'Compra',
+  px_ask: 'Venta',
+  q_ask: 'Cant. Venta',
+  v: 'Volumen',
+  q_op: 'Operaciones',
+  c: 'Cierre',
+  pct_change: '% Día',
+  last: 'Último',
+  code: 'Código',
+  region: 'Región',
+  pct_week: '% Sem.',
+  pct_year: '% Año',
+  casa: 'Casa',
+  nombre: 'Nombre',
+  compra: 'Compra',
+  venta: 'Venta',
+  moneda: 'Moneda',
+  fechaActualizacion: 'Actualizado',
+};
+
+// Columnas de texto (todo lo demás se alinea a la derecha como numérico).
+const TEXT_COLS = new Set(['symbol', 'ticker', 'tipo', 'desc', 'code', 'region', 'casa', 'nombre', 'moneda', 'fechaActualizacion']);
 
 const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
 const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
@@ -64,6 +132,8 @@ export class App implements OnInit, OnDestroy {
   errors = signal<Record<string, string | null>>({});
   // panelId -> last update timestamp
   lastUpdated = signal<Record<string, Date | null>>({});
+  // panelId -> true si las filas vigentes vinieron de IOL (false = data912).
+  feedSource = signal<Record<string, boolean | undefined>>({});
 
   paused = signal(false);
   intervalSec = signal<number>(DEFAULTS.refreshSec);
@@ -94,6 +164,13 @@ export class App implements OnInit, OnDestroy {
   private sub?: Subscription;
   // Guard del burst CI: evita encolar bursts t0 cuando el anterior sigue en vuelo.
   private t0InFlight = false;
+
+  // Estado del ciclo Yahoo (índices/ETFs): throttle + refs 1y por símbolo.
+  private yahooInFlight = false;
+  private lastYahooMs = 0;
+  private yahooRefs = new Map<string, { w: number | null; y: number | null }>();
+  private yahooRefsReady = false;
+  private yahooRefsInFlight = false;
 
   // ArbTab activa, o null si la pestaña activa es una data tab.
   activeArbTab = computed<ArbTab | null>(() => {
@@ -132,7 +209,13 @@ export class App implements OnInit, OnDestroy {
   // Filas/columnas de la vista detalle (casillero abierto vía "Ver todo").
   detailRows = computed(() => {
     const id = this.detailPanel();
-    const rows = id ? (this.data()[id] ?? []) : [];
+    let rows = id ? (this.data()[id] ?? []) : [];
+    // Bonos/Letras: columna "Tipo" (CER, Bonares, Globales, …) también en el
+    // detalle — y de paso el filtro de texto matchea por tipo.
+    if (id === 'bonos' || id === 'letras') {
+      const classify = id === 'bonos' ? bondType : noteType;
+      rows = rows.map((r) => ({ symbol: r?.symbol, tipo: classify(String(r?.symbol ?? '')), ...r }));
+    }
     const q = this.filter().trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
@@ -181,37 +264,155 @@ export class App implements OnInit, OnDestroy {
   }
 
   refreshAll() {
-    // Dos ciclos independientes: los feeds rápidos no esperan al burst CI lento.
+    // Ciclos independientes: los feeds rápidos no esperan al burst CI lento
+    // ni al ciclo Yahoo (que además corre cada YAHOO_REFRESH_MS, no cada tick).
     this.refreshFast();
     this.refreshT0();
+    this.refreshIndices();
   }
 
-  // Feeds rápidos: data912, dólar e IOL 24hs (t1 = 1 sola request c/u). Renderiza
-  // en cuanto llegan, sin bloquearse por el burst CI (que va en refreshT0()).
+  // Índices internacionales y ETFs (Yahoo spark, 1 request por casillero).
+  private refreshIndices() {
+    const now = Date.now();
+    if (this.yahooInFlight || now - this.lastYahooMs < YAHOO_REFRESH_MS) return;
+    this.yahooInFlight = true;
+    this.lastYahooMs = now;
+    this.loadYahooRefs();
+
+    const feeds: [string, QuoteSpec[]][] = [['indices', INDEX_SPECS], ['etfs', ETF_SPECS]];
+    const calls = feeds.map(([id, specs]) =>
+      this.http.get<any>(yahooSparkUrl(specs.map((s) => s.code), '1d', '5m')).pipe(
+        map((res) => ({ id, specs, res, error: null as string | null })),
+        catchError((err) => of({ id, specs, res: null, error: (err?.message ?? 'Error de red') as string | null }))
+      )
+    );
+    forkJoin(calls).subscribe((results) => {
+      this.yahooInFlight = false;
+      const dataAcc = { ...this.data() };
+      const errAcc = { ...this.errors() };
+      const tsAcc = { ...this.lastUpdated() };
+      const ts = new Date();
+      for (const r of results) {
+        const rows = r.res ? this.sparkRows(r.specs, r.res) : [];
+        if (rows.length) {
+          dataAcc[r.id] = rows;
+          errAcc[r.id] = null;
+          tsAcc[r.id] = ts;
+        } else {
+          errAcc[r.id] = r.error ?? 'sin datos de Yahoo';
+        }
+      }
+      this.data.set(dataAcc);
+      this.errors.set(errAcc);
+      this.lastUpdated.set(tsAcc);
+    });
+  }
+
+  // spark 1d → filas con la forma común de la app. `symbol` es el nombre
+  // legible (S&P 500) y `code` el símbolo Yahoo; % Sem./% Año salen de los
+  // cierres de referencia 1y (yahooRefs).
+  private sparkRows(specs: QuoteSpec[], res: any): any[] {
+    const rows: any[] = [];
+    for (const s of specs) {
+      const d = res?.[s.code];
+      const closes: number[] = (d?.close ?? []).filter((x: any) => x != null && +x > 0);
+      if (!closes.length) continue;
+      const last = closes[closes.length - 1];
+      const prev = +d?.chartPreviousClose || 0;
+      const refs = this.yahooRefs.get(s.code);
+      const row: any = {
+        symbol: s.label,
+        code: s.code,
+        last,
+        pct_change: prev > 0 ? (last / prev - 1) * 100 : 0,
+        pct_week: refs?.w ? (last / refs.w - 1) * 100 : null,
+        pct_year: refs?.y ? (last / refs.y - 1) * 100 : null,
+      };
+      if (s.region) row.region = s.region;
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // Cierres de referencia (~7 y ~365 días atrás) desde spark 1y — una sola
+  // vez por sesión (el histórico diario no cambia intradía). Si falla, se
+  // reintenta en el próximo ciclo de refreshIndices.
+  private loadYahooRefs() {
+    if (this.yahooRefsReady || this.yahooRefsInFlight) return;
+    this.yahooRefsInFlight = true;
+    const feeds = [INDEX_SPECS, ETF_SPECS];
+    const calls = feeds.map((specs) =>
+      this.http.get<any>(yahooSparkUrl(specs.map((s) => s.code), '1y', '1d')).pipe(
+        catchError(() => of(null))
+      )
+    );
+    forkJoin(calls).subscribe((results) => {
+      this.yahooRefsInFlight = false;
+      let any = false;
+      for (const res of results) {
+        if (!res) continue;
+        for (const code of Object.keys(res)) {
+          const d = res[code];
+          if (!d?.timestamp?.length || !d?.close?.length) continue;
+          this.yahooRefs.set(code, {
+            w: refCloseAt(d.timestamp, d.close, 7),
+            y: refCloseAt(d.timestamp, d.close, 365),
+          });
+          any = true;
+        }
+      }
+      if (any) {
+        this.yahooRefsReady = true;
+        // Fuerza un ciclo 1d inmediato para que % Sem./% Año aparezcan ya,
+        // sin esperar los YAHOO_REFRESH_MS del throttle.
+        this.lastYahooMs = 0;
+      }
+    });
+  }
+
+  // Feeds rápidos: IOL como fuente primaria de cada panel (1 request por panel
+  // vía api/iol/panel.js) con data912 en paralelo como fallback si IOL falla o
+  // viene vacío; más dólar e IOL 24hs de CEDEARs. Renderiza en cuanto llegan,
+  // sin bloquearse por el burst CI (que va en refreshT0()).
   private refreshFast() {
     if (this.loading()) return;
     this.loading.set(true);
     const fetchable = PANELS.filter((p) => !!p.url);
-    const calls = fetchable.map((p) =>
-      this.http.get<any>(p.url!).pipe(
-        map((res) => ({ id: p.id, rows: this.normalize(res), error: null as string | null })),
+    const calls: Observable<FeedResult>[] = fetchable.map((p) => {
+      const fallback = this.http.get<any>(p.url!).pipe(
+        map((res) => ({ rows: this.normalize(res), error: null as string | null })),
         catchError((err) =>
-          of({ id: p.id, rows: [] as any[], error: err?.message ?? 'Error de red' })
+          of({ rows: [] as any[], error: (err?.message ?? 'Error de red') as string | null })
         )
-      )
-    );
-    // IOL 24hs (t1 = panel completo). Si falla, fallback a data912.
+      );
+      if (!p.iolUrl) {
+        return fallback.pipe(map((r) => ({ id: p.id, rows: r.rows, error: r.error })));
+      }
+      const iol = this.http.get<any>(p.iolUrl).pipe(
+        map((res) => this.normalize(res)),
+        catchError(() => of([] as any[]))
+      );
+      return forkJoin([iol, fallback]).pipe(
+        map(([iolRows, fb]): FeedResult =>
+          iolRows.length
+            ? { id: p.id, rows: iolRows, error: null, iol: true }
+            : { id: p.id, rows: fb.rows, error: fb.error, iol: false }
+        )
+      );
+    });
+    // IOL 24hs (t1 = panel completo de CEDEARs). Si falla, fallback a data912.
     calls.push(
       this.http.get<CedearRow[]>(iolCedearsUrl('H24')).pipe(
         map((rows) => ({ id: '__iol_t1', rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
         catchError(() => of({ id: '__iol_t1', rows: [] as CedearRow[], error: 'iol' as string | null }))
-      ) as any
+      )
     );
 
     forkJoin(calls).subscribe((results) => {
       const dataAcc = { ...this.data() };
       const errAcc = { ...this.errors() };
       const tsAcc = { ...this.lastUpdated() };
+      const srcAcc = { ...this.feedSource() };
       const now = new Date();
       let iolT1: CedearRow[] = [];
       for (const r of results) {
@@ -223,16 +424,21 @@ export class App implements OnInit, OnDestroy {
           errAcc[r.id] = null;
           tsAcc[r.id] = now;
         }
+        if (r.iol !== undefined) srcAcc[r.id] = r.iol;
       }
       // Fallback 24hs: IOL si trajo filas, si no el libro de data912 ('cedears').
       const data912 = (dataAcc['cedears'] as CedearRow[]) ?? [];
       const t1Real = iolT1.length > 0;
       this.cedearsT1.set(t1Real ? iolT1 : data912);
       this.iolSource.update((s) => ({ ...s, t1: t1Real }));
+      // El casillero CEDEARs de Cotizaciones también prefiere IOL.
+      if (t1Real) dataAcc['cedears'] = iolT1;
+      srcAcc['cedears'] = t1Real;
 
       this.data.set(dataAcc);
       this.errors.set(errAcc);
       this.lastUpdated.set(tsAcc);
+      this.feedSource.set(srcAcc);
       this.loading.set(false);
       this.runMonitor();
     });
@@ -321,6 +527,15 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // Etiqueta en español de una columna cruda del feed (vista detalle).
+  colLabel(col: string): string {
+    return COL_LABELS[col] ?? col;
+  }
+
+  isNumCol(col: string): boolean {
+    return !TEXT_COLS.has(col);
+  }
+
   fmt(v: any): string {
     if (v == null) return '';
     if (typeof v === 'number') {
@@ -329,6 +544,11 @@ export class App implements OnInit, OnDestroy {
       return v.toLocaleString('es-AR', { maximumFractionDigits: 4 });
     }
     if (v instanceof Date) return v.toLocaleString('es-AR');
+    // Timestamps ISO de los feeds (p. ej. fechaActualizacion) → hora local.
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return d.toLocaleString('es-AR');
+    }
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
   }
@@ -348,7 +568,8 @@ export class App implements OnInit, OnDestroy {
     if (err) return `error: ${err.substring(0, 30)}`;
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
-    return `hace ${sec}s`;
+    const src = this.feedSource()[id];
+    return `hace ${sec}s${src === undefined ? '' : src ? ' · IOL' : ' · data912'}`;
   }
 
   // --- Monitor de alertas ---

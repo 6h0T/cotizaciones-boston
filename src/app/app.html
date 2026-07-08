@@ -125,7 +125,7 @@
           <thead>
             <tr>
               @for (col of detailColumns(); track col) {
-                <th [class.num]="col !== 'symbol' && col !== 'ticker'">{{ col }}</th>
+                <th [class.num]="isNumCol(col)">{{ colLabel(col) }}</th>
               }
             </tr>
           </thead>
@@ -133,7 +133,7 @@
             @for (row of detailRows(); track $index) {
               <tr>
                 @for (col of detailColumns(); track col) {
-                  <td [class.num]="col !== 'symbol' && col !== 'ticker'">{{ fmt(row[col]) }}</td>
+                  <td [class.num]="isNumCol(col)">{{ fmt(row[col]) }}</td>
                 }
               </tr>
             }
@@ -154,5 +154,5 @@
 </section>
 
 <footer class="foot">
-  <span>Fuente: IOL (plazo real t0/t1) · data912 fallback · dolarapi. Snapshot congelado al pausar o descargar.</span>
+  <span>Fuente: IOL (primaria) · data912 (fallback) · dolarapi · Yahoo (índices y ETFs). Snapshot congelado al pausar o descargar.</span>
 </footer>

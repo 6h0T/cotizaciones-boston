@@ -169,6 +169,116 @@ export function settlementLabel(s: Settlement): string {
   return s === 'CI' ? 'Contado Inmediato (T+0)' : '24 horas (T+1)';
 }
 
+// ── Clasificación de bonos y letras por tipo ────────────────────────────────
+// data912 no trae campo de categoría en /live/arg_bonds ni /live/arg_notes:
+// se clasifica por patrón de ticker (convención BYMA). Reglas ordenadas — la
+// primera que matchea gana; lo no reconocido cae en 'Otros' (nunca se oculta
+// una fila por no poder clasificarla).
+const BOND_TYPE_RULES: { label: string; re: RegExp }[] = [
+  { label: 'Bonares',        re: /^(AL|AE|AN|AO)\d/ },
+  { label: 'Globales',       re: /^(GD|GE)\d/ },
+  { label: 'CER',            re: /^(TX|TZX|DICP|DIP|PARP|PAP|PAY|CUAP|PR1)/ },
+  { label: 'Tasa Fija',      re: /^(T\d|TO\d|TY\d)/ },
+  { label: 'Duales / TAMAR', re: /^(TT|TM)[A-Z0-9]/ },
+  { label: 'Dólar Linked',   re: /^TZV/ },
+  { label: 'Bopreales',      re: /^BP/ },
+  { label: 'Cupones PBI',    re: /^TVP/ },
+  { label: 'Provinciales',   re: /^(BA|BB|BC|BDC|CO|EM|ER|ND|PBA|PM|PU|SF|SA|S24)/ },
+];
+
+const NOTE_TYPE_RULES: { label: string; re: RegExp }[] = [
+  { label: 'Lecaps (Tasa Fija)', re: /^S/ },
+  { label: 'Leceres (CER)',      re: /^X/ },
+  { label: 'Dólar Linked',       re: /^D/ },
+];
+
+const OTHER_TYPE = 'Otros';
+
+function classify(rules: { label: string; re: RegExp }[], symbol: string): string {
+  for (const r of rules) if (r.re.test(symbol)) return r.label;
+  return OTHER_TYPE;
+}
+
+export const bondType = (symbol: string): string => classify(BOND_TYPE_RULES, symbol);
+export const noteType = (symbol: string): string => classify(NOTE_TYPE_RULES, symbol);
+
+// Orden de presentación de los grupos en la UI.
+export const BOND_TYPE_ORDER: string[] = [...BOND_TYPE_RULES.map((r) => r.label), OTHER_TYPE];
+export const NOTE_TYPE_ORDER: string[] = [...NOTE_TYPE_RULES.map((r) => r.label), OTHER_TYPE];
+
+// Histórico diario de bonos (para variación semanal/anual). Sólo cubre los
+// tickers principales (bonares/globales/CER viejos); donde no hay, la UI
+// muestra "—".
+export const bondHistoryUrl = (symbol: string): string =>
+  `/api/data912/historical/bonds/${symbol}`;
+
+// Quita las variantes en USD (sufijo C/D) cuando el ticker base en pesos
+// también está en el feed (AL30C/AL30D → queda AL30). Los tickers que
+// terminan en C/D sin base presente (p. ej. BA37D) son emisiones propias y
+// quedan. Evita que un mismo activo ocupe 3 lugares en un resumen.
+export function dropUsdVariants(rows: any[]): any[] {
+  const symbols = new Set(rows.map((r) => String(r?.symbol ?? '')));
+  return rows.filter((r) => {
+    const s = String(r?.symbol ?? '');
+    return !(/[CD]$/.test(s) && symbols.has(s.slice(0, -1)));
+  });
+}
+
+// ── Índices internacionales y ETFs (fuente: Yahoo Finance vía /api/yahoo) ───
+// IOL NO expone índices internacionales ni ETFs (auditado 2026-07-08: los
+// paneles 'indices' y 'eTFs' devuelven 0 títulos para todos los países, y la
+// cotización por símbolo trae datos viejos — p. ej. NDX=1.384). Por eso estos
+// dos casilleros usan Yahoo Finance (endpoint spark, multi-símbolo, sin auth),
+// proxyado igual que data912/dolarapi. Máx ~20 símbolos por request.
+export interface QuoteSpec {
+  code: string;    // símbolo Yahoo
+  label: string;   // nombre legible que se muestra en la tabla
+  region?: string; // agrupador del casillero Índices
+}
+
+export const REGION_ORDER = ['EEUU', 'Europa', 'Asia'];
+
+// Rusia (RTSI/MOEX) no está: Yahoo no publica datos de Moscú desde 2022.
+export const INDEX_SPECS: QuoteSpec[] = [
+  { code: '^DJI',      label: 'Dow Jones',       region: 'EEUU' },
+  { code: '^GSPC',     label: 'S&P 500',         region: 'EEUU' },
+  { code: '^NDX',      label: 'Nasdaq 100',      region: 'EEUU' },
+  { code: '^FTSE',     label: 'FTSE 100',        region: 'Europa' },
+  { code: '^FCHI',     label: 'CAC 40',          region: 'Europa' },
+  { code: '^AEX',      label: 'AEX',             region: 'Europa' },
+  { code: '^GDAXI',    label: 'DAX',             region: 'Europa' },
+  { code: '^IBEX',     label: 'IBEX 35',         region: 'Europa' },
+  { code: '^STOXX50E', label: 'Euro Stoxx 50',   region: 'Europa' },
+  { code: '^SSMI',     label: 'SMI',             region: 'Europa' },
+  { code: 'PSI20.LS',  label: 'PSI (Lisboa)',    region: 'Europa' },
+  { code: '^N225',     label: 'Nikkei 225',      region: 'Asia' },
+  { code: '^HSI',      label: 'Hang Seng',       region: 'Asia' },
+  { code: '000001.SS', label: 'Shanghai Comp.',  region: 'Asia' },
+  { code: '^KS11',     label: 'KOSPI',           region: 'Asia' },
+  { code: '^TWII',     label: 'Taiwán (TWII)',   region: 'Asia' },
+  { code: '^BSESN',    label: 'Sensex (India)',  region: 'Asia' },
+];
+
+export const ETF_SPECS: QuoteSpec[] = [
+  { code: 'SPY',  label: 'SPY — S&P 500' },
+  { code: 'QQQ',  label: 'QQQ — Nasdaq 100' },
+  { code: 'DIA',  label: 'DIA — Dow Jones' },
+  { code: 'IWM',  label: 'IWM — Russell 2000' },
+  { code: 'VTI',  label: 'VTI — Total Market' },
+  { code: 'EEM',  label: 'EEM — Emergentes' },
+  { code: 'EFA',  label: 'EFA — Desarrollados' },
+  { code: 'GLD',  label: 'GLD — Oro' },
+  { code: 'TLT',  label: 'TLT — Tesoro 20+ años' },
+  { code: 'XLF',  label: 'XLF — Financiero' },
+  { code: 'XLE',  label: 'XLE — Energía' },
+  { code: 'ARKK', label: 'ARKK — Innovación' },
+];
+
+// Los símbolos van encodeados de a uno (encodear las comas rompe el parser
+// de Yahoo).
+export const yahooSparkUrl = (codes: string[], range: string, interval: string): string =>
+  `/api/yahoo/v8/finance/spark?symbols=${codes.map(encodeURIComponent).join(',')}&range=${range}&interval=${interval}`;
+
 // ── Composición del panel de acciones ARG "Líder" ───────────────────────────
 // data912 (`/api/data912/live/arg_stocks`) devuelve TODAS las acciones ARG en
 // un solo listado plano, sin campo de categoría/panel — no hay forma de
