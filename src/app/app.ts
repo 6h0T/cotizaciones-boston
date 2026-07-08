@@ -199,7 +199,7 @@ export class App implements OnInit, OnDestroy {
     if (this.view() === 'arbitraje') return this.activeArbTab()?.label ?? '';
     const id = this.detailPanel();
     if (!id) return '';
-    if (id === 'mapa-cedears') return 'Mapa de calor — CEDEARs';
+    if (id === 'mapa-cedears') return 'Mapa de calor';
     return this.panels.find((p) => p.id === id)?.label ?? '';
   });
   subbarStatus = computed<string>(() => {
