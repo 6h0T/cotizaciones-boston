@@ -24,18 +24,14 @@
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   user-select: none;
 }
-.brand-dot {
-  width: 9px; height: 9px; border-radius: 3px;
-  background: var(--ink);
-  box-shadow: inset 0 0 0 2px var(--surface), 0 0 0 1px var(--ink);
-}
-.brand-mono {
-  font-family: var(--font-mono);
-  font-size: 12px; font-weight: 600; letter-spacing: 0.12em;
-  color: var(--ink-2);
+/* boston-logo-dark.png = variante con el wordmark en azul marca, generada
+   desde boston-logo-light.png (que es blanco y no se lee sobre barra clara). */
+.brand-logo {
+  display: block;
+  height: 30px;
+  width: auto;
 }
 
 /* ── Navegación ───────────────────────────────────────────────────────────── */
@@ -73,13 +69,18 @@
 /* ── Controles (derecha, misma altura) ────────────────────────────────────── */
 .controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
+/* Toggle Simple/Avanzado de Cotizaciones: versión compacta del seg del nav. */
+.seg-mode { padding: 2px; }
+.seg-mode .seg-btn { padding: 3px 9px; font-size: 11.5px; }
+
 .icon-btn {
-  width: 32px; height: 32px;
+  width: 22px; height: 22px;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); background: var(--surface);
   border-radius: var(--r-sm); color: var(--ink-2); cursor: pointer;
   transition: background .12s, color .12s, border-color .12s, transform .04s;
 }
+.icon-btn svg { width: 11px; height: 11px; }
 .icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); border-color: var(--line-2); }
 .icon-btn:active:not(:disabled) { transform: translateY(1px); }
 .icon-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -87,15 +88,15 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .rate {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 32px; padding: 0 9px;
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 22px; padding: 0 6px;
   border: 1px solid var(--line); background: var(--surface);
   border-radius: var(--r-sm);
-  font-size: 12px; color: var(--ink-3);
+  font-size: 10.5px; color: var(--ink-3);
 }
 .rate input {
-  width: 34px; border: 0; background: transparent; outline: none;
-  font-family: var(--font-mono); font-size: 12.5px; font-weight: 600;
+  width: 22px; border: 0; background: transparent; outline: none;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   color: var(--ink); text-align: right;
   -moz-appearance: textfield;
 }
@@ -178,6 +179,9 @@
 
 /* ── Panel ────────────────────────────────────────────────────────────────── */
 .panel { padding: 14px 24px 64px; }
+/* Arbitraje está pensado para entrar completo en el viewport (la Ganancia
+   al pie es el dato clave): menos aire vertical que el resto de las vistas. */
+.panel.arb-panel { padding: 10px 24px 40px; }
 
 .error-box {
   background: var(--neg-bg); border: 1px solid var(--neg-line); color: var(--neg);

@@ -1,7 +1,6 @@
 <header class="toolbar">
   <div class="brand" title="Boston Asset Management">
-    <span class="brand-dot"></span>
-    <span class="brand-mono">BAM</span>
+    <img class="brand-logo" src="/boston-logo-dark.png" alt="Boston Asset Management" />
   </div>
 
   <nav class="nav">
@@ -40,6 +39,14 @@
       />
       <span>s</span>
     </label>
+
+    <!-- Toggle modo simple/avanzado — solo aplica a Cotizaciones. -->
+    @if (view() === 'cotizaciones') {
+      <div class="seg seg-mode" title="Nivel de detalle de Cotizaciones">
+        <button class="seg-btn" [class.on]="uiMode() === 'basico'" (click)="setUiMode('basico')">Simple</button>
+        <button class="seg-btn" [class.on]="uiMode() === 'avanzado'" (click)="setUiMode('avanzado')">Avanzado</button>
+      </div>
+    }
 
     <button class="toggle" [class.paused]="paused()" (click)="togglePause()">
       <span class="live-dot" [class.off]="paused()"></span>
@@ -104,7 +111,7 @@
   </div>
 }
 
-<section class="panel">
+<section class="panel" [class.arb-panel]="view() === 'arbitraje'">
   @if (view() === 'arbitraje') {
     <app-arbitrage
       [cedearRows]="activeArbRows()"
@@ -156,7 +163,10 @@
       [data]="data()"
       [errors]="errors()"
       [status]="statusFn"
+      [opportunities]="bestOpps()"
+      [mode]="uiMode()"
       (openDetail)="openDetail($event)"
+      (openArb)="setActive($event)"
     />
   }
 </section>

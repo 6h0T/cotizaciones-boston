@@ -32,6 +32,66 @@
 /* Mapa de calor de CEDEARs: card de ancho completo arriba del mosaico. */
 .heat-tile { margin-bottom: 14px; }
 
+/* ── Modo simple: Mercado hoy (mapa) + columna Dólar / Oportunidades ───────
+   La grilla ocupa todo el alto útil del viewport (toolbar 52 + padding del
+   panel 14 + footer fijo ~44): el mapa estira su lienzo y las dos cards de
+   la derecha reparten sus filas en el alto completo. */
+.basic {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  height: calc(100dvh - 110px);
+  min-height: 480px;
+}
+.basic-market {
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.basic-side {
+  display: flex; flex-direction: column; gap: 14px;
+  min-height: 0;
+}
+.basic-side .tile { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.basic-side .dolar-rows { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.basic-side .dolar-row { flex: 1; }
+.basic-side .opps { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.basic-side .opp { flex: 1; }
+
+.opps { display: flex; flex-direction: column; }
+.opp {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  font-family: var(--font-ui); font-size: 12px; color: var(--ink-2);
+  text-align: left;
+  transition: background .12s;
+}
+.opp:hover { background: var(--accent-sf); }
+.opp-tab {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 2px 7px; white-space: nowrap;
+}
+.opp-trade { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp-trade b { font-family: var(--font-mono); color: var(--ink); }
+.opp-vol { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.opp-net { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.opp-net.pos { color: var(--pos); }
+.opp-net.neg { color: var(--neg); }
+.opp-note {
+  padding: 8px 14px; font-size: 10.5px; color: var(--ink-3);
+  border-top: 1px solid var(--line); background: var(--surface-2);
+}
+
+@media (max-width: 1000px) {
+  /* En una columna no tiene sentido forzar el alto del viewport. */
+  .basic { grid-template-columns: 1fr; height: auto; }
+}
+
 /* ── Header del casillero ─────────────────────────────────────────────────── */
 .tile-head {
   display: flex; align-items: baseline; gap: 8px;

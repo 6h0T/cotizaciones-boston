@@ -138,6 +138,11 @@ export class App implements OnInit, OnDestroy {
 
   paused = signal(false);
   intervalSec = signal<number>(DEFAULTS.refreshSec);
+  // Modo de la pantalla Cotizaciones (Ley de Hick): 'basico' muestra solo lo
+  // esencial; 'avanzado' el mosaico completo. Persiste en localStorage.
+  uiMode = signal<'basico' | 'avanzado'>(
+    localStorage.getItem('boston-cot-mode') === 'avanzado' ? 'avanzado' : 'basico'
+  );
   loading = signal(false);
   filter = signal('');
 
@@ -151,6 +156,9 @@ export class App implements OnInit, OnDestroy {
   // Monitor de oportunidades de arbitraje.
   alertsEnabled = signal<boolean>(true);
   activeAlerts = signal<ArbOpportunity[]>([]);
+  // Mejor round-trip por pestaña (sin umbral): alimenta "Mejores
+  // oportunidades" del modo simple de Cotizaciones.
+  bestOpps = signal<ArbOpportunity[]>([]);
   private armed: Record<string, boolean> = {};      // por tabId; true = listo para disparar
   private audioCtx?: AudioContext;
   private alertBuffer?: AudioBuffer;                 // /alert.wav decodificado
@@ -264,6 +272,11 @@ export class App implements OnInit, OnDestroy {
 
   togglePause() {
     this.paused.update((v) => !v);
+  }
+
+  setUiMode(m: 'basico' | 'avanzado') {
+    this.uiMode.set(m);
+    try { localStorage.setItem('boston-cot-mode', m); } catch {}
   }
 
   refreshAll() {
@@ -581,6 +594,7 @@ export class App implements OnInit, OnDestroy {
     const opps = scanOpportunities(
       this.cedearsT0(), this.cedearsT1(), this.iolSource(), this.monitorSettings
     );
+    this.bestOpps.set([...opps].sort((a, b) => b.netPct - a.netPct));
     const byTab = new Map(opps.map(o => [o.tabId, o] as const));
     let fired = false;
     for (const tab of ARB_TABS) {

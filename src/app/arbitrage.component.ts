@@ -322,10 +322,13 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     </div>
   `,
   styles: [`
-    .arb { padding: 2px 0 24px; }
+    /* Layout comprimido verticalmente: el objetivo es que head + puntas +
+       cuenta total (con la Ganancia) entren en un viewport de ~900px sin
+       scroll. Ante la duda, sacar aire vertical antes que información. */
+    .arb { padding: 0; }
     .arb-head {
       display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
-      padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--line);
+      padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line);
     }
     .badge {
       display: inline-flex; align-items: center; height: 24px; padding: 0 9px;
@@ -343,7 +346,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .monto input {
       width: 150px; background: var(--surface); color: var(--ink);
       font-family: var(--font-mono); font-size: 13px; font-weight: 600;
-      border: 1px solid var(--line); border-radius: var(--r-sm); padding: 7px 9px;
+      border: 1px solid var(--line); border-radius: var(--r-sm); padding: 5px 9px;
       outline: none; transition: border-color .12s, box-shadow .12s;
     }
     .monto input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
@@ -359,7 +362,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .pc-total { color: var(--ink-3); }
 
     .vol-warn {
-      margin: 0 0 16px; padding: 9px 13px; border-radius: var(--r);
+      margin: 0 0 10px; padding: 6px 13px; border-radius: var(--r);
       background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn);
       font-size: 12px;
     }
@@ -400,7 +403,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .fb-resume:active { transform: translateY(1px); }
 
     .ci-note {
-      margin: 0 0 16px; padding: 9px 13px; border-radius: var(--r);
+      margin: 0 0 10px; padding: 6px 13px; border-radius: var(--r);
       background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn);
       font-size: 12px;
     }
@@ -461,30 +464,30 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
        El output accionable: tabla de las 4 órdenes con cantidades enteras.
        Espeja el layout del ejercicio (Acción · Ticker · Precio · Nominales · Monto). */
     .nominals {
-      margin-bottom: 22px; border: 1px solid var(--line); border-radius: var(--r-lg);
+      margin-bottom: 0; border: 1px solid var(--line); border-radius: var(--r-lg);
       background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden;
     }
     .nm-head {
       display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-      padding: 14px 16px 12px; border-bottom: 1px solid var(--line);
+      padding: 9px 16px 8px; border-bottom: 1px solid var(--line);
     }
     .nm-head h3 {
       margin: 0; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--ink);
       display: flex; align-items: center; gap: 8px;
     }
     .nm-head h3::before { content: ''; width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
-    .nm-sub { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
+    .nm-sub { font-size: 11px; color: var(--ink-3); line-height: 1.4; flex: 1; min-width: 320px; }
     .nm-sub strong { font-family: var(--font-mono); color: var(--ink-2); font-weight: 600; }
 
     table.nm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .nm-table th {
-      text-align: left; padding: 8px 16px; background: var(--surface-2);
+      text-align: left; padding: 5px 16px; background: var(--surface-2);
       font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
       color: var(--ink-3); border-bottom: 1px solid var(--line); white-space: nowrap;
     }
     .nm-table th.num, .nm-table td.num { text-align: right; }
     .nm-table td {
-      padding: 11px 16px; border-bottom: 1px solid var(--line); color: var(--ink); white-space: nowrap;
+      padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--ink); white-space: nowrap;
     }
     .nm-table tbody tr:last-child td { border-bottom: 0; }
     .nm-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -499,7 +502,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       background: var(--surface); border: 1px solid var(--line); padding: 2px 7px; border-radius: var(--r-sm);
     }
     /* Nominales: el dato protagonista, lo que se opera en cada orden. */
-    .nm-table td.nom { font-size: 17px; font-weight: 700; color: var(--ink); }
+    .nm-table td.nom { font-size: 15px; font-weight: 700; color: var(--ink); }
 
     /* Codificación direccional estilo blotter: cada pata se lee por color en TODA
        la fila (compra = azul acento, venta = ámbar), no sólo en una palabra.
@@ -517,7 +520,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
     .nm-foot {
       display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-      padding: 12px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
+      padding: 8px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
     }
     .nm-left { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
     .nm-left .nm-lbl {
@@ -526,15 +529,15 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .nm-left .nm-val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
     .nm-left .nm-sep { color: var(--line); }
     .nm-left .nm-note { font-size: 11px; color: var(--ink-3); font-style: italic; }
-    .nm-prof { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 8px 14px; border-radius: var(--r); }
+    .nm-prof { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; padding: 6px 14px; border-radius: var(--r); }
     .nm-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
     .nm-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
     .nm-prof .nm-lbl {
       font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
     }
     .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; }
-    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
-    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
     .nm-prof .nm-net { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
     .nm-prof.pos .nm-pval, .nm-prof.pos .nm-ppct { color: var(--pos-strong); }
     .nm-prof.neg .nm-pval, .nm-prof.neg .nm-ppct { color: var(--neg-strong); }
@@ -547,11 +550,11 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .grid {
       display: grid; gap: 14px;
       grid-template-columns: repeat(auto-fit, minmax(264px, 1fr));
-      margin-bottom: 22px;
+      margin-bottom: 12px;
     }
     .card {
       background: var(--surface); border: 1px solid var(--line);
-      border-radius: var(--r-lg); padding: 16px; box-shadow: var(--shadow-sm);
+      border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-sm);
     }
     .card h3 {
       margin: 0 0 4px; font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--ink);
@@ -564,19 +567,19 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .card.buy h3::before { background: var(--accent); }
     .card.sell h3::before { background: var(--warn); }
     .card.result.profit h3::before { background: var(--pos); }
-    .card .hint { margin: 0 0 12px; font-size: 11px; color: var(--ink-3); }
+    .card .hint { margin: 0 0 8px; font-size: 11px; color: var(--ink-3); }
     .card select {
-      width: 100%; padding: 8px 10px; font-size: 13px; font-family: var(--font-ui);
+      width: 100%; padding: 6px 10px; font-size: 13px; font-family: var(--font-ui);
       border: 1px solid var(--line); border-radius: var(--r-sm);
       background: var(--surface); color: var(--ink); outline: none;
     }
     .card select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
-    .card-body { margin-top: 12px; }
+    .card-body { margin-top: 8px; }
     /* Ticker protagonista: el CEDEAR/acción que se va a operar en esta punta. */
     .card-ticker {
-      font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+      font-family: var(--font-mono); font-size: 24px; font-weight: 600;
       letter-spacing: -0.01em; line-height: 1; color: var(--ink);
-      padding-bottom: 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line);
+      padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
     }
     .card.buy .card-ticker { color: var(--accent-2); }
     .card.sell .card-ticker { color: var(--warn-strong); }
@@ -597,8 +600,8 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       font-style: normal; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
       color: var(--ink-3);
     }
-    .row.big { padding: 10px 0 2px; border-top: 1px solid var(--line); margin-top: 8px; font-size: 13px; }
-    .row.big .hi { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--ink); }
+    .row.big { padding: 6px 0 0; border-top: 1px solid var(--line); margin-top: 6px; font-size: 13px; }
+    .row.big .hi { font-family: var(--font-mono); font-size: 17px; font-weight: 600; color: var(--ink); }
 
     .card.result.profit { background: var(--pos-bg); border-color: var(--pos-line); box-shadow: var(--shadow-sm), inset 3px 0 0 var(--pos); }
     /* Neto negativo = "sin oportunidad" (informativo), no una pérdida realizada → ámbar, no rojo. */

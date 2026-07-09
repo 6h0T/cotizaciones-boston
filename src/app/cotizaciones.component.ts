@@ -14,6 +14,8 @@ import {
   dropUsdVariants,
 } from './market.config';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
+import { FlipNumComponent } from './flip-num.component';
+import type { ArbOpportunity } from './arb-engine';
 
 interface TileGroup {
   label: string; // '' = casillero sin agrupación (una sola tabla corrida)
@@ -127,7 +129,7 @@ function refsFromHistory(res: any): HistRefs {
 @Component({
   selector: 'app-cotizaciones',
   standalone: true,
-  imports: [CommonModule, CedearsHeatmapComponent],
+  imports: [CommonModule, CedearsHeatmapComponent, FlipNumComponent],
   templateUrl: './cotizaciones.component.html',
   styleUrl: './cotizaciones.component.css',
 })
@@ -137,7 +139,12 @@ export class CotizacionesComponent {
   data = input.required<Record<string, any[]>>();
   errors = input.required<Record<string, string | null>>();
   status = input.required<(id: string) => string>();
+  // Mejor round-trip por pestaña del arbitrador (para el modo simple).
+  opportunities = input<ArbOpportunity[]>([]);
+  // Modo simple/avanzado (Ley de Hick) — lo maneja el shell desde la toolbar.
+  mode = input<'basico' | 'avanzado'>('basico');
   openDetail = output<string>();
+  openArb = output<string>();
 
   // Cierres de referencia por símbolo para % Sem. / % Año. Se piden una sola
   // vez por símbolo y sesión (el histórico es diario, no cambia intradía) y

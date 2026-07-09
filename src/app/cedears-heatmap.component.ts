@@ -21,6 +21,7 @@ const COMPACT_MAX = 55;
 // Lienzos nominales para el squarify (solo definen proporciones; se proyecta
 // a % del contenedor real).
 const COMPACT_W = 1000, COMPACT_H = 430;
+const FILL_H = 620; // modo fill: el contenedor real es más alto que la card compacta
 const FULL_W = 1400, FULL_H = 780;
 const SECTOR_HEAD = 15; // alto de la barra de título del sector (px nominales)
 
@@ -167,6 +168,12 @@ interface HeatSector {
       background: var(--surface-3);
     }
     :host(.full) .map { height: max(600px, calc(100vh - 230px)); }
+    /* fill: el mapa absorbe el alto libre del contenedor flex (modo simple). */
+    :host(.fill) {
+      display: flex; flex-direction: column;
+      flex: 1; min-height: 0;
+    }
+    :host(.fill) .map { flex: 1; height: auto; min-height: 320px; }
 
     .sector {
       position: absolute;
@@ -234,11 +241,13 @@ interface HeatSector {
 
     .empty { text-align: center; color: var(--ink-3); font-size: 12.5px; padding: 24px; }
   `],
-  host: { '[class.full]': 'full()' },
+  host: { '[class.full]': 'full()', '[class.fill]': 'fill()' },
 })
 export class CedearsHeatmapComponent {
   rows = input.required<any[]>();
   full = input<boolean>(false);
+  // fill: estira el mapa al alto disponible del contenedor flex (modo simple).
+  fill = input<boolean>(false);
 
   hovered = signal<HeatCell | null>(null);
   private mouse = signal<{ x: number; y: number; maxX: number; maxY: number }>({ x: 0, y: 0, maxX: 1000, maxY: 430 });
@@ -247,7 +256,7 @@ export class CedearsHeatmapComponent {
 
   sectors = computed<HeatSector[]>(() => {
     const W = this.full() ? FULL_W : COMPACT_W;
-    const H = this.full() ? FULL_H : COMPACT_H;
+    const H = this.full() ? FULL_H : (this.fill() ? FILL_H : COMPACT_H);
 
     // Solo entran los tickers con sector/cap mapeados (excluye variantes USD
     // comprimidas y duplicados B3/ADR — ver cedears-meta.ts).
