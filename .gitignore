@@ -48,3 +48,6 @@ Thumbs.db
 .env.*
 !.env.example
 .vercel
+
+# Python (backend/cohen-feed)
+__pycache__/

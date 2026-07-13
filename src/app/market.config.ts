@@ -137,6 +137,26 @@ export const iolCedearsUrl = (s: Settlement): string =>
   `/api/iol/cedears?plazo=${IOL_PLAZO[s]}`;
 export const DATA912_CEDEARS_URL = '/api/data912/live/arg_cedears';
 
+// ── Feed local Cohen (Primary/XOMS vía backend/cohen-feed) ──────────────────
+// Opt-in por máquina: si localStorage.cohenFeedUrl está seteado (p. ej.
+// "http://127.0.0.1:8125"), los CEDEARs se leen de ese feed streaming (CI y
+// 24hs con libro REAL) en vez de IOL. Sin la clave, comportamiento idéntico
+// al actual — cero impacto en producción. Para desactivar:
+// localStorage.removeItem('cohenFeedUrl').
+export function cohenFeedBase(): string | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem('cohenFeedUrl') : null;
+  } catch {
+    return null;
+  }
+}
+export const cedearsUrl = (s: Settlement): string => {
+  const base = cohenFeedBase();
+  return base
+    ? `${base.replace(/\/+$/, '')}/cedears?plazo=${IOL_PLAZO[s]}`
+    : iolCedearsUrl(s);
+};
+
 // ── Matriz de pestañas de arbitraje (moneda × plazo) ────────────────────────
 export interface ArbTab {
   id: string;

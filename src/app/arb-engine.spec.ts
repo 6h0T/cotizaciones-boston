@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArbPair, CedearRow } from './market.config';
+import { cedearsUrl } from './market.config';
 import {
   bestBuy,
   bestSell,
@@ -587,5 +588,20 @@ describe('nextAlertState', () => {
 
   it('permanece armado sin disparar cuando netPct < fire: prevArmed=true, netPct=1.0', () => {
     expect(nextAlertState(true, 1.0, opts)).toEqual({ armed: true, fire: false });
+  });
+});
+
+describe('cedearsUrl (switch feed Cohen / IOL)', () => {
+  it('sin cohenFeedUrl usa IOL con el plazo mapeado', () => {
+    localStorage.removeItem('cohenFeedUrl');
+    expect(cedearsUrl('CI')).toBe('/api/iol/cedears?plazo=t0');
+    expect(cedearsUrl('H24')).toBe('/api/iol/cedears?plazo=t1');
+  });
+
+  it('con cohenFeedUrl apunta al feed local (y tolera barra final)', () => {
+    localStorage.setItem('cohenFeedUrl', 'http://127.0.0.1:8125/');
+    expect(cedearsUrl('CI')).toBe('http://127.0.0.1:8125/cedears?plazo=t0');
+    expect(cedearsUrl('H24')).toBe('http://127.0.0.1:8125/cedears?plazo=t1');
+    localStorage.removeItem('cohenFeedUrl');
   });
 });

@@ -9,7 +9,7 @@ import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
 import {
-  ARB_TABS, DEFAULTS, ArbTab, CedearRow, iolCedearsUrl, bondType, noteType,
+  ARB_TABS, DEFAULTS, ArbTab, CedearRow, cedearsUrl, cohenFeedBase, bondType, noteType,
   INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
 } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
@@ -418,7 +418,7 @@ export class App implements OnInit, OnDestroy {
     });
     // IOL 24hs (t1 = panel completo de CEDEARs). Si falla, fallback a data912.
     calls.push(
-      this.http.get<CedearRow[]>(iolCedearsUrl('H24')).pipe(
+      this.http.get<CedearRow[]>(cedearsUrl('H24')).pipe(
         map((rows) => ({ id: '__iol_t1', rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
         catchError(() => of({ id: '__iol_t1', rows: [] as CedearRow[], error: 'iol' as string | null }))
       )
@@ -466,7 +466,7 @@ export class App implements OnInit, OnDestroy {
   private refreshT0() {
     if (this.t0InFlight) return;
     this.t0InFlight = true;
-    this.http.get<CedearRow[]>(iolCedearsUrl('CI')).pipe(
+    this.http.get<CedearRow[]>(cedearsUrl('CI')).pipe(
       map((rows) => (Array.isArray(rows) ? rows : [])),
       catchError(() => of<CedearRow[]>([]))
     ).subscribe((rows) => {
@@ -577,7 +577,7 @@ export class App implements OnInit, OnDestroy {
       if (!ts) return 'esperando CEDEARs…';
       const sec = Math.round((Date.now() - ts.getTime()) / 1000);
       const real = arbTab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
-      return `hace ${sec}s · ${real ? 'IOL' : 'data912'}`;
+      return `hace ${sec}s · ${real ? (cohenFeedBase() ? 'Cohen' : 'IOL') : 'data912'}`;
     }
     const ts = this.lastUpdated()[id];
     const err = this.errors()[id];
