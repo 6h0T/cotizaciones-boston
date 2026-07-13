@@ -1,4 +1,14 @@
 {
+  "/api/iol": {
+    "target": "https://cotizaciones-boston.vercel.app",
+    "secure": true,
+    "changeOrigin": true
+  },
+  "/api/cohen": {
+    "target": "https://cotizaciones-boston.vercel.app",
+    "secure": true,
+    "changeOrigin": true
+  },
   "/api/data912": {
     "target": "https://data912.com",
     "secure": true,
