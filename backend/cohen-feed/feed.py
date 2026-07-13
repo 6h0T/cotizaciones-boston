@@ -36,7 +36,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
-CEDEARS_META_TS = HERE.parent.parent / "src" / "app" / "cedears-meta.ts"
+# Universo de símbolos: en el repo vive en src/app; en un deploy suelto (VPS)
+# se copia cedears-meta.ts junto a feed.py.
+CEDEARS_META_CANDIDATES = [
+    HERE.parent.parent / "src" / "app" / "cedears-meta.ts",
+    HERE / "cedears-meta.ts",
+]
 
 DEFAULT_API_URL = "https://api.cohen.xoms.com.ar/"
 DEFAULT_WS_URL = "wss://api.cohen.xoms.com.ar/"
@@ -69,14 +74,15 @@ def load_env(path: Path) -> dict[str, str]:
 
 def load_bases() -> list[str]:
     """Tickers base desde cedears-meta.ts (única fuente de verdad del universo)."""
-    try:
-        text = CEDEARS_META_TS.read_text(encoding="utf-8")
+    for meta in CEDEARS_META_CANDIDATES:
+        try:
+            text = meta.read_text(encoding="utf-8")
+        except OSError:
+            continue
         bases = re.findall(r"^\s{2}([A-Z][A-Z0-9]*):\s*\{", text, re.MULTILINE)
         if bases:
             return sorted(set(bases))
-    except OSError:
-        pass
-    print(f"[feed] aviso: no pude leer {CEDEARS_META_TS}, uso subset líquido")
+    print("[feed] aviso: no encontre cedears-meta.ts, uso subset liquido")
     return FALLBACK_BASES
 
 
@@ -102,6 +108,7 @@ class Books:
         self.last_message_ts: float | None = None
         self.connected = False
         self.mode = "live"
+        self.auth = "pending"  # pending | ok | rejected
 
     def update(self, plazo: str, symbol: str, row: dict) -> None:
         with self._lock:
@@ -117,6 +124,7 @@ class Books:
         with self._lock:
             return {
                 "mode": self.mode,
+                "auth": self.auth,
                 "connected": self.connected,
                 "messages": self.messages,
                 "lastMessageAgoSec": (
@@ -185,7 +193,14 @@ def on_market_data(message: dict) -> None:
 
 # ── Conexión pyRofex (solo market data; nunca se importan funciones de órdenes)
 
+AUTH_RETRY_SEC = 300  # si Cohen rechaza credenciales, reintentar cada 5 min
+
+
 def start_live(env: dict[str, str]) -> None:
+    """Hilo de conexión resiliente: el proceso NUNCA muere por auth o caída de
+    WS — sirve libros vacíos (la app cae a IOL) y reintenta hasta conectar.
+    Así el servicio queda deployado y se enciende solo cuando Cohen habilite
+    el acceso API / lleguen credenciales de Matriz válidas."""
     import pyRofex
     from pyRofex.components.enums import Environment, MarketDataEntry
 
@@ -198,21 +213,6 @@ def start_live(env: dict[str, str]) -> None:
     ws_url = env.get("COHEN_WS_URL", DEFAULT_WS_URL)
     pyRofex._set_environment_parameter("url", api_url, Environment.LIVE)
     pyRofex._set_environment_parameter("ws", ws_url, Environment.LIVE)
-
-    try:
-        # account: sólo requerido por la firma; no se rutean órdenes jamás.
-        pyRofex.initialize(
-            user=user,
-            password=password,
-            account=env.get("COHEN_ACCOUNT", "N/A"),
-            environment=Environment.LIVE,
-        )
-    except Exception as exc:  # ApiException con mensaje claro de Primary
-        sys.exit(
-            f"[feed] autenticación rechazada por {api_url}: {exc}\n"
-            "  → verificá que sean las credenciales de MATRIZ (no Cohen Connect)\n"
-            "  → y que Cohen haya habilitado el acceso API en la cuenta"
-        )
 
     tickers = build_tickers(load_bases())
     entries = [
@@ -228,42 +228,61 @@ def start_live(env: dict[str, str]) -> None:
         print(f"[feed] ws excepción: {exc}")
         BOOKS.connected = False
 
-    def connect() -> None:
-        pyRofex.init_websocket_connection(
-            market_data_handler=on_market_data,
-            error_handler=on_error,
-            exception_handler=on_exception,
-        )
-        for i in range(0, len(tickers), SUBSCRIPTION_CHUNK):
-            pyRofex.market_data_subscription(
-                tickers=tickers[i : i + SUBSCRIPTION_CHUNK], entries=entries, depth=1
-            )
-        BOOKS.connected = True
-        print(f"[feed] conectado a {ws_url} — {len(tickers)} instrumentos suscriptos")
-
-    connect()
-
-    # Watchdog: si se cae el WS o deja de llegar data en horario, reconecta.
-    def watchdog() -> None:
+    def run() -> None:
         backoff = 5
         while True:
-            time.sleep(5)
-            if BOOKS.connected:
-                backoff = 5
+            # 1) Autenticación — account sólo requerido por la firma; no se
+            #    rutean órdenes jamás.
+            try:
+                pyRofex.initialize(
+                    user=user,
+                    password=password,
+                    account=env.get("COHEN_ACCOUNT", "N/A"),
+                    environment=Environment.LIVE,
+                )
+                BOOKS.auth = "ok"
+            except Exception as exc:
+                BOOKS.auth = "rejected"
+                print(
+                    f"[feed] auth rechazada por {api_url}: {exc}\n"
+                    "  (hacen falta credenciales de MATRIZ con API habilitada)"
+                    f" - reintento en {AUTH_RETRY_SEC}s"
+                )
+                time.sleep(AUTH_RETRY_SEC)
                 continue
-            print(f"[feed] reconectando en {backoff}s…")
-            time.sleep(backoff)
+
+            # 2) WebSocket + suscripción.
             try:
                 try:
                     pyRofex.close_websocket_connection()
                 except Exception:
                     pass
-                connect()
+                pyRofex.init_websocket_connection(
+                    market_data_handler=on_market_data,
+                    error_handler=on_error,
+                    exception_handler=on_exception,
+                )
+                for i in range(0, len(tickers), SUBSCRIPTION_CHUNK):
+                    pyRofex.market_data_subscription(
+                        tickers=tickers[i : i + SUBSCRIPTION_CHUNK],
+                        entries=entries,
+                        depth=1,
+                    )
+                BOOKS.connected = True
+                backoff = 5
+                print(f"[feed] conectado a {ws_url} — {len(tickers)} instrumentos suscriptos")
             except Exception as exc:
-                print(f"[feed] reconexión falló: {exc}")
+                print(f"[feed] conexión WS falló: {exc} — reintento en {backoff}s")
+                time.sleep(backoff)
                 backoff = min(backoff * 2, 120)
+                continue
 
-    threading.Thread(target=watchdog, daemon=True, name="watchdog").start()
+            # 3) Vigilar la conexión; si se cae, volver a empezar.
+            while BOOKS.connected:
+                time.sleep(5)
+            print("[feed] ws caído — reconectando…")
+
+    threading.Thread(target=run, daemon=True, name="cohen-ws").start()
 
 
 # ── Modo simulación (sin credenciales) ───────────────────────────────────────
@@ -304,6 +323,10 @@ def start_simulate() -> None:
 
 # ── Servidor HTTP ────────────────────────────────────────────────────────────
 
+FEED_TOKEN = ""   # si está seteado (FEED_TOKEN en .env), /cedears exige X-Feed-Token
+FEED_HOST = "127.0.0.1"  # FEED_HOST=0.0.0.0 en el VPS (detrás del proxy de Vercel)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, payload, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -318,6 +341,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 (nombre requerido por BaseHTTPRequestHandler)
         url = urlparse(self.path)
         if url.path == "/cedears":
+            if FEED_TOKEN and self.headers.get("X-Feed-Token") != FEED_TOKEN:
+                self._send_json({"error": "unauthorized"}, 401)
+                return
             plazo = (parse_qs(url.query).get("plazo") or ["t1"])[0]
             if plazo not in ("t0", "t1"):
                 self._send_json({"error": "plazo debe ser t0 o t1"}, 400)
@@ -333,6 +359,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    # Consolas Windows (cp1252) no soportan todos los caracteres — jamás
+    # dejar que un print tire abajo un hilo de conexión.
+    try:
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+    except AttributeError:
+        pass
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulate", action="store_true", help="libros falsos, sin credenciales")
     parser.add_argument("--port", type=int, default=None)
@@ -341,13 +375,18 @@ def main() -> None:
     env = load_env(HERE / ".env")
     port = args.port or int(env.get("PORT", DEFAULT_PORT))
 
+    global FEED_TOKEN, FEED_HOST
+    FEED_TOKEN = env.get("FEED_TOKEN", "")
+    FEED_HOST = env.get("FEED_HOST", FEED_HOST)
+
     if args.simulate:
         start_simulate()
     else:
         start_live(env)
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"[feed] sirviendo en http://127.0.0.1:{port}  (/cedears?plazo=t0|t1, /health)")
+    server = ThreadingHTTPServer((FEED_HOST, port), Handler)
+    token_note = "con token" if FEED_TOKEN else "sin token"
+    print(f"[feed] sirviendo en http://{FEED_HOST}:{port}  (/cedears?plazo=t0|t1, /health) {token_note}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

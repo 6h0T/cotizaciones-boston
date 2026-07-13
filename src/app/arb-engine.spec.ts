@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArbPair, CedearRow } from './market.config';
-import { cedearsUrl } from './market.config';
+import { cohenCedearsUrl, iolCedearsUrl } from './market.config';
 import {
   bestBuy,
   bestSell,
@@ -591,17 +591,27 @@ describe('nextAlertState', () => {
   });
 });
 
-describe('cedearsUrl (switch feed Cohen / IOL)', () => {
-  it('sin cohenFeedUrl usa IOL con el plazo mapeado', () => {
+describe('cohenCedearsUrl (fuente principal Cohen, IOL fallback)', () => {
+  it('por defecto usa el proxy same-origin /api/cohen con el plazo mapeado', () => {
     localStorage.removeItem('cohenFeedUrl');
-    expect(cedearsUrl('CI')).toBe('/api/iol/cedears?plazo=t0');
-    expect(cedearsUrl('H24')).toBe('/api/iol/cedears?plazo=t1');
+    expect(cohenCedearsUrl('CI')).toBe('/api/cohen/cedears?plazo=t0');
+    expect(cohenCedearsUrl('H24')).toBe('/api/cohen/cedears?plazo=t1');
   });
 
-  it('con cohenFeedUrl apunta al feed local (y tolera barra final)', () => {
+  it('localStorage.cohenFeedUrl overridea la base (dev, tolera barra final)', () => {
     localStorage.setItem('cohenFeedUrl', 'http://127.0.0.1:8125/');
-    expect(cedearsUrl('CI')).toBe('http://127.0.0.1:8125/cedears?plazo=t0');
-    expect(cedearsUrl('H24')).toBe('http://127.0.0.1:8125/cedears?plazo=t1');
+    expect(cohenCedearsUrl('CI')).toBe('http://127.0.0.1:8125/cedears?plazo=t0');
     localStorage.removeItem('cohenFeedUrl');
+  });
+
+  it("'off' deshabilita Cohen (la app va directo a IOL)", () => {
+    localStorage.setItem('cohenFeedUrl', 'off');
+    expect(cohenCedearsUrl('CI')).toBeNull();
+    localStorage.removeItem('cohenFeedUrl');
+  });
+
+  it('iolCedearsUrl (el fallback) sigue apuntando al proxy IOL', () => {
+    expect(iolCedearsUrl('CI')).toBe('/api/iol/cedears?plazo=t0');
+    expect(iolCedearsUrl('H24')).toBe('/api/iol/cedears?plazo=t1');
   });
 });

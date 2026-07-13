@@ -3,14 +3,14 @@ import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin, Observable, Subscription, timer } from 'rxjs';
-import { catchError, map, of } from 'rxjs';
+import { catchError, map, of, switchMap } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
 import {
-  ARB_TABS, DEFAULTS, ArbTab, CedearRow, cedearsUrl, cohenFeedBase, bondType, noteType,
-  INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
+  ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, cohenCedearsUrl, iolCedearsUrl,
+  bondType, noteType, INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
 } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
@@ -67,6 +67,7 @@ interface FeedResult {
   rows: any[];
   error: string | null;
   iol?: boolean; // true = filas de IOL; false = fallback data912; undefined = n/a
+  src?: CedearsSrc; // sólo para '__cedears_t1' (cadena Cohen → IOL)
 }
 
 // Etiquetas en español para las columnas crudas de los feeds (vista detalle
@@ -102,6 +103,9 @@ const TEXT_COLS = new Set(['symbol', 'ticker', 'tipo', 'desc', 'code', 'region',
 
 const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
 const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
+
+// Fuente que efectivamente entregó el libro de CEDEARs de un plazo.
+type CedearsSrc = 'cohen' | 'iol' | null;
 
 // Vista de primer nivel del navbar.
 type View = 'arbitraje' | 'cotizaciones';
@@ -146,12 +150,15 @@ export class App implements OnInit, OnDestroy {
   loading = signal(false);
   filter = signal('');
 
-  // Filas de CEDEARs por plazo. Fuente preferida: IOL (precio real por plazo).
-  // Fallback: data912 (un solo libro ≈ 24hs) para ambos plazos.
-  cedearsT0 = signal<CedearRow[]>([]); // Contado Inmediato (IOL t0)
-  cedearsT1 = signal<CedearRow[]>([]); // 24hs (IOL t1)
-  // true = datos reales IOL para ese plazo; false = fallback data912.
+  // Filas de CEDEARs por plazo. Prioridad: Cohen (feed Primary/XOMS) → IOL.
+  // data912 quedó fuera de esta cadena. Si CI no tiene fuente real, se estima
+  // desde el libro de 24hs (nunca desde data912).
+  cedearsT0 = signal<CedearRow[]>([]); // Contado Inmediato
+  cedearsT1 = signal<CedearRow[]>([]); // 24hs
+  // true = libro real del plazo (Cohen o IOL); false = sin fuente real (CI estimado).
   iolSource = signal<{ t0: boolean; t1: boolean }>({ t0: false, t1: false });
+  // Quién entregó cada plazo (para la etiqueta de estado).
+  cedearsFeed = signal<{ t0: CedearsSrc; t1: CedearsSrc }>({ t0: null, t1: null });
 
   // Monitor de oportunidades de arbitraje.
   alertsEnabled = signal<boolean>(true);
@@ -393,7 +400,9 @@ export class App implements OnInit, OnDestroy {
   private refreshFast() {
     if (this.loading()) return;
     this.loading.set(true);
-    const fetchable = PANELS.filter((p) => !!p.url);
+    // El casillero CEDEARs ya no se pide a data912: lo llena la cadena
+    // Cohen → IOL de 24hs (abajo). El resto de los paneles sigue igual.
+    const fetchable = PANELS.filter((p) => !!p.url && p.id !== 'cedears');
     const calls: Observable<FeedResult>[] = fetchable.map((p) => {
       const fallback = this.http.get<any>(p.url!).pipe(
         map((res) => ({ rows: this.normalize(res), error: null as string | null })),
@@ -416,11 +425,10 @@ export class App implements OnInit, OnDestroy {
         )
       );
     });
-    // IOL 24hs (t1 = panel completo de CEDEARs). Si falla, fallback a data912.
+    // CEDEARs 24hs: Cohen → IOL (data912 fuera de la cadena).
     calls.push(
-      this.http.get<CedearRow[]>(cedearsUrl('H24')).pipe(
-        map((rows) => ({ id: '__iol_t1', rows: Array.isArray(rows) ? rows : [], error: null as string | null })),
-        catchError(() => of({ id: '__iol_t1', rows: [] as CedearRow[], error: 'iol' as string | null }))
+      this.fetchCedears('H24').pipe(
+        map(({ rows, src }) => ({ id: '__cedears_t1', rows, error: null as string | null, src }))
       )
     );
 
@@ -430,9 +438,14 @@ export class App implements OnInit, OnDestroy {
       const tsAcc = { ...this.lastUpdated() };
       const srcAcc = { ...this.feedSource() };
       const now = new Date();
-      let iolT1: CedearRow[] = [];
+      let t1Rows: CedearRow[] = [];
+      let t1Src: CedearsSrc = null;
       for (const r of results) {
-        if (r.id === '__iol_t1') { iolT1 = (r.rows as CedearRow[]) ?? []; continue; }
+        if (r.id === '__cedears_t1') {
+          t1Rows = (r.rows as CedearRow[]) ?? [];
+          t1Src = r.src ?? null;
+          continue;
+        }
         if (r.error) {
           errAcc[r.id] = r.error;
         } else {
@@ -442,14 +455,16 @@ export class App implements OnInit, OnDestroy {
         }
         if (r.iol !== undefined) srcAcc[r.id] = r.iol;
       }
-      // Fallback 24hs: IOL si trajo filas, si no el libro de data912 ('cedears').
-      const data912 = (dataAcc['cedears'] as CedearRow[]) ?? [];
-      const t1Real = iolT1.length > 0;
-      this.cedearsT1.set(t1Real ? iolT1 : data912);
+      // 24hs: lo que haya entregado la cadena Cohen → IOL; vacío = sin libro
+      // (data912 ya no participa).
+      const t1Real = t1Rows.length > 0;
+      this.cedearsT1.set(t1Rows);
       this.iolSource.update((s) => ({ ...s, t1: t1Real }));
-      // El casillero CEDEARs de Cotizaciones también prefiere IOL.
-      if (t1Real) dataAcc['cedears'] = iolT1;
-      srcAcc['cedears'] = t1Real;
+      this.cedearsFeed.update((f) => ({ ...f, t1: t1Src }));
+      // El casillero CEDEARs de Cotizaciones usa el mismo libro.
+      dataAcc['cedears'] = t1Rows;
+      errAcc['cedears'] = t1Real ? null : 'sin datos (Cohen/IOL)';
+      if (t1Real) tsAcc['cedears'] = now;
 
       this.data.set(dataAcc);
       this.errors.set(errAcc);
@@ -460,22 +475,40 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  // Burst CI (t0 = cotización por símbolo): es el feed caro/lento. Se auto-regula
-  // — no relanza hasta que el burst anterior terminó, así corre al ritmo máximo
-  // que IOL sostiene sin encolar requests ni tapar a los feeds rápidos.
+  // Libro de CEDEARs de un plazo con prioridad Cohen → IOL. Si Cohen falla o
+  // devuelve vacío (auth pendiente, feed caído, mercado cerrado) se pide a IOL.
+  // src indica quién entregó filas; null = ninguna fuente respondió con datos.
+  private fetchCedears(s: Settlement): Observable<{ rows: CedearRow[]; src: CedearsSrc }> {
+    const asRows = (raw: unknown): CedearRow[] => (Array.isArray(raw) ? raw : []);
+    const iol$ = this.http.get<CedearRow[]>(iolCedearsUrl(s)).pipe(
+      map((raw) => {
+        const rows = asRows(raw);
+        return { rows, src: (rows.length ? 'iol' : null) as CedearsSrc };
+      }),
+      catchError(() => of({ rows: [] as CedearRow[], src: null as CedearsSrc }))
+    );
+    const cohenUrl = cohenCedearsUrl(s);
+    if (!cohenUrl) return iol$;
+    return this.http.get<CedearRow[]>(cohenUrl).pipe(
+      map(asRows),
+      catchError(() => of([] as CedearRow[])),
+      switchMap((rows) => (rows.length ? of({ rows, src: 'cohen' as CedearsSrc }) : iol$))
+    );
+  }
+
+  // Burst CI (t0): Cohen entrega el libro CI real al instante; si no hay, IOL
+  // cotiza símbolo por símbolo (feed caro/lento que se auto-regula: no relanza
+  // hasta que el burst anterior terminó). Sin fuente real, el motor estima el
+  // CI desde el libro de 24hs (iolSource.t0=false).
   private refreshT0() {
     if (this.t0InFlight) return;
     this.t0InFlight = true;
-    this.http.get<CedearRow[]>(cedearsUrl('CI')).pipe(
-      map((rows) => (Array.isArray(rows) ? rows : [])),
-      catchError(() => of<CedearRow[]>([]))
-    ).subscribe((rows) => {
+    this.fetchCedears('CI').subscribe(({ rows, src }) => {
       this.t0InFlight = false;
       const t0Real = rows.length > 0;
-      // Fallback CI: IOL si trajo filas, si no el último libro de data912.
-      const data912 = (this.data()['cedears'] as CedearRow[]) ?? [];
-      this.cedearsT0.set(t0Real ? rows : data912);
+      this.cedearsT0.set(t0Real ? rows : this.cedearsT1());
       this.iolSource.update((s) => ({ ...s, t0: t0Real }));
+      this.cedearsFeed.update((f) => ({ ...f, t0: src }));
       this.runMonitor();
     });
   }
@@ -570,20 +603,30 @@ export class App implements OnInit, OnDestroy {
   }
 
   panelStatus(id: string): string {
-    // Las arb tabs no tienen url propia: usan el feed de CEDEARs (IOL o data912).
+    // Las arb tabs no tienen url propia: usan el feed de CEDEARs (Cohen → IOL).
     const arbTab = this.arbTabs.find((t) => t.id === id);
     if (arbTab) {
       const ts = this.lastUpdated()['cedears'];
       if (!ts) return 'esperando CEDEARs…';
       const sec = Math.round((Date.now() - ts.getTime()) / 1000);
-      const real = arbTab.settlement === 'CI' ? this.iolSource().t0 : this.iolSource().t1;
-      return `hace ${sec}s · ${real ? (cohenFeedBase() ? 'Cohen' : 'IOL') : 'data912'}`;
+      const isCi = arbTab.settlement === 'CI';
+      const real = isCi ? this.iolSource().t0 : this.iolSource().t1;
+      const src = isCi ? this.cedearsFeed().t0 : this.cedearsFeed().t1;
+      const label =
+        src === 'cohen' ? 'Cohen' :
+        src === 'iol' ? 'IOL' :
+        real ? '—' : 'estimado desde 24hs';
+      return `hace ${sec}s · ${label}`;
     }
     const ts = this.lastUpdated()[id];
     const err = this.errors()[id];
     if (err) return `error: ${err.substring(0, 30)}`;
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
+    if (id === 'cedears') {
+      const s = this.cedearsFeed().t1;
+      return `hace ${sec}s${s ? ` · ${s === 'cohen' ? 'Cohen' : 'IOL'}` : ''}`;
+    }
     const src = this.feedSource()[id];
     return `hace ${sec}s${src === undefined ? '' : src ? ' · IOL' : ' · data912'}`;
   }

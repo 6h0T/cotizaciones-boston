@@ -137,24 +137,26 @@ export const iolCedearsUrl = (s: Settlement): string =>
   `/api/iol/cedears?plazo=${IOL_PLAZO[s]}`;
 export const DATA912_CEDEARS_URL = '/api/data912/live/arg_cedears';
 
-// ── Feed local Cohen (Primary/XOMS vía backend/cohen-feed) ──────────────────
-// Opt-in por máquina: si localStorage.cohenFeedUrl está seteado (p. ej.
-// "http://127.0.0.1:8125"), los CEDEARs se leen de ese feed streaming (CI y
-// 24hs con libro REAL) en vez de IOL. Sin la clave, comportamiento idéntico
-// al actual — cero impacto en producción. Para desactivar:
-// localStorage.removeItem('cohenFeedUrl').
+// ── Feed Cohen (Primary/XOMS vía backend/cohen-feed) ────────────────────────
+// Fuente PRINCIPAL de CEDEARs. Por defecto pega al proxy same-origin
+// /api/cohen/cedears (Vercel → VPS de Boston, token del lado servidor).
+// Overrides por máquina vía localStorage.cohenFeedUrl:
+//   - una URL (p. ej. "http://127.0.0.1:8125") → feed local (dev);
+//   - "off" → deshabilita Cohen (la app usa IOL directo).
+// Si Cohen devuelve vacío o falla, el caller cae a IOL (nunca a data912).
 export function cohenFeedBase(): string | null {
+  let v: string | null = null;
   try {
-    return typeof localStorage !== 'undefined' ? localStorage.getItem('cohenFeedUrl') : null;
+    v = typeof localStorage !== 'undefined' ? localStorage.getItem('cohenFeedUrl') : null;
   } catch {
-    return null;
+    /* localStorage inaccesible (SSR/privacidad): usar el default */
   }
+  if (v === 'off') return null;
+  return v || '/api/cohen';
 }
-export const cedearsUrl = (s: Settlement): string => {
+export const cohenCedearsUrl = (s: Settlement): string | null => {
   const base = cohenFeedBase();
-  return base
-    ? `${base.replace(/\/+$/, '')}/cedears?plazo=${IOL_PLAZO[s]}`
-    : iolCedearsUrl(s);
+  return base ? `${base.replace(/\/+$/, '')}/cedears?plazo=${IOL_PLAZO[s]}` : null;
 };
 
 // ── Matriz de pestañas de arbitraje (moneda × plazo) ────────────────────────
