@@ -1,0 +1,161 @@
+/**
+ * operar.types.ts — Tipos propios de la pantalla Operar (Home de esta etapa;
+ * Panel/Ficha/Ticket quedan como placeholder para etapas siguientes).
+ */
+import type { CedearRow } from './market.config';
+
+// Fila del panel de IOL vía api/iol/panel.js — misma forma que CedearRow, más
+// `desc` opcional (el proxy la suma sólo para bonos/ONs, ver docs/api-iol.md §3.1).
+export interface PanelRow extends CedearRow {
+  desc?: string;
+}
+
+// Subvistas de Operar. Sólo 'home' se desarrolla en esta etapa.
+export type OperarSubview = 'home' | 'panel' | 'ficha' | 'ticket';
+
+// Ids de instrumento de las pills del Home. Mismos ids que /api/iol/panel?id=…
+// salvo 'cedears': ese panel no soporta el instrumento CEDEARs (no está en el
+// mapeo de api/iol/panel.js), así que se sirve desde /api/iol/cedears.
+export type InstrumentId = 'acciones' | 'cedears' | 'bonos' | 'letras' | 'ons';
+
+export interface InstrumentPill {
+  id: InstrumentId;
+  label: string;
+  initials: string; // círculo con 2 letras, tokens neutros — sin ícono a color
+}
+
+export const INSTRUMENT_PILLS: InstrumentPill[] = [
+  { id: 'acciones', label: 'Acciones', initials: 'AC' },
+  { id: 'cedears', label: 'Cedears', initials: 'CE' },
+  { id: 'bonos', label: 'Bonos', initials: 'BO' },
+  { id: 'letras', label: 'Letras', initials: 'LE' },
+  { id: 'ons', label: 'ONs', initials: 'ON' },
+];
+
+// Tira de dólares del Home — hardcodeada en esta etapa.
+// TODO: wire a /Cotizaciones/MEP cuando haya proxy.
+export interface DolarStripRow {
+  label: string;
+  value: number;
+}
+
+// "Destacados": movers reales calculados en cliente sobre acciones+cedears
+// ya cacheados (sin fetch extra).
+export interface MoverRow {
+  symbol: string;
+  price: number;
+  pctChange: number;
+}
+
+// Card de Fondos del Home — hardcodeada en esta etapa.
+// TODO: /api/v2/Titulos/FCI.
+export interface FondoCard {
+  name: string;
+  category: string;
+  detail: string;
+}
+
+// Pills de moneda del Panel. Sólo AR$ trae datos reales en todos los
+// instrumentos; US$ sólo tiene fuente real para Acciones (mapea a
+// /api/iol/panel?id=usa, ver docs/api-iol.md §3.1); US$C queda deshabilitado
+// hasta que haya un panel real de esa moneda.
+export type CurrencyPillId = 'ars' | 'usd' | 'usdc';
+
+export interface CurrencyPill {
+  id: CurrencyPillId;
+  label: string;
+}
+
+export const CURRENCY_PILLS: CurrencyPill[] = [
+  { id: 'ars', label: 'AR$' },
+  { id: 'usd', label: 'US$' },
+  { id: 'usdc', label: 'US$C' },
+];
+
+// Sub-tab de Panel por instrumento (Acciones: líder/general; Bonos: soberanos
+// US$/AR$). Heurística simple por ahora — ver operar.component.ts.
+export interface PanelSubTabDef {
+  id: string;
+  label: string;
+}
+
+// Orden de la tabla de Panel.
+export type PanelSortColumn = 'symbol' | 'price' | 'pct';
+
+export interface PanelSortState {
+  column: PanelSortColumn;
+  dir: 'asc' | 'desc';
+}
+
+// Rango del gráfico de Ficha — ver api/iol/historico.js.
+export type ChartRango = '1S' | '1M' | '6M' | '1A' | 'MAX';
+
+export interface ChartRangoDef {
+  id: ChartRango;
+  label: string;
+}
+
+export const CHART_RANGOS: ChartRangoDef[] = [
+  { id: '1S', label: '1S' },
+  { id: '1M', label: '1M' },
+  { id: '6M', label: '6M' },
+  { id: '1A', label: '1A' },
+  { id: 'MAX', label: 'MÁX' },
+];
+
+// Punto de serie histórica crudo tal cual lo devuelve IOL (api/iol/historico.js
+// no remapea). OJO: los nombres reales NO coinciden con los de docs/api-iol.md
+// §2.4 — auditado contra la respuesta real 2026-07-14. No hay campo "cierre":
+// para series diarias, `ultimoPrecio` de cada día ES el cierre de esa rueda.
+export interface HistoricoPoint {
+  fechaHora: string;
+  apertura: number;
+  maximo: number;
+  minimo: number;
+  ultimoPrecio: number;
+  volumenNominal: number;
+}
+
+// ── Ticket de compra ─────────────────────────────────────────────────────
+// 100% UI — sin request a ningún endpoint de operatoria (IOL todavía no
+// habilita esa API para la cuenta, ver docs/api-iol.md §4). Elio pidió que
+// este apartado quede hardcodeado hasta que se habilite.
+
+// Paso interno de la subvista Ticket.
+export type TicketStep = 'form' | 'confirmar';
+
+export type TicketTipoPrecio = 'mercado' | 'limite';
+
+export interface TicketTipoPrecioDef {
+  id: TicketTipoPrecio;
+  label: string;
+}
+
+export const TICKET_TIPO_PRECIO: TicketTipoPrecioDef[] = [
+  { id: 'mercado', label: 'Mercado' },
+  { id: 'limite', label: 'Límite' },
+];
+
+export type TicketPlazo = 't0' | 't1' | 't2' | 't3';
+
+export interface TicketPlazoDef {
+  id: TicketPlazo;
+  label: string;
+}
+
+export const TICKET_PLAZOS: TicketPlazoDef[] = [
+  { id: 't0', label: 'T0' },
+  { id: 't1', label: '24hs' },
+  { id: 't2', label: '48hs' },
+  { id: 't3', label: '72hs' },
+];
+
+// Estado completo del formulario de Ticket (Paso 1), llevado al resumen del
+// Paso 2 sin perderse al volver ("conserva los valores cargados").
+export interface TicketState {
+  tipoPrecio: TicketTipoPrecio;
+  precioLimite: number | null;
+  plazo: TicketPlazo;
+  cantidad: number;
+  monto: number | null;
+}
