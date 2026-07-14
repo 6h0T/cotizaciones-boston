@@ -51,3 +51,6 @@ Thumbs.db
 
 # Python (backend/cohen-feed)
 __pycache__/
+
+# Estado local de herramientas (claude-flow)
+.claude-flow/
