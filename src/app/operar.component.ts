@@ -297,7 +297,10 @@ const FONDOS: FondoCard[] = [
 
         <div class="op-card op-book">
           <button class="op-book-toggle" type="button" (click)="fichaBookOpen.set(!fichaBookOpen())">
-            <h3>Puntas</h3>
+            <span class="ob-title-wrap">
+              <h3>Puntas</h3>
+              @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
+            </span>
             <span class="ob-chevron" [class.open]="fichaBookOpen()">›</span>
           </button>
           @if (fichaBookOpen()) {
@@ -305,11 +308,11 @@ const FONDOS: FondoCard[] = [
               <div class="ob-side ob-buy">
                 <span class="ob-lbl">Compra</span>
                 <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
-                <span class="ob-px num">{{ fmt(selectedRow()?.px_bid ?? 0) }}</span>
+                <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
               </div>
               <div class="ob-side ob-sell">
                 <span class="ob-lbl">Venta</span>
-                <span class="ob-px num">{{ fmt(selectedRow()?.px_ask ?? 0) }}</span>
+                <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
                 <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
               </div>
             </div>
@@ -328,80 +331,94 @@ const FONDOS: FondoCard[] = [
           </div>
 
           <div class="op-card op-book">
-            <h3>Puntas</h3>
+            <div class="ob-title-wrap">
+              <h3>Puntas</h3>
+              @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
+            </div>
             <div class="op-book-row">
               <div class="ob-side ob-buy">
                 <span class="ob-lbl">Compra</span>
                 <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
-                <span class="ob-px num">{{ fmt(selectedRow()?.px_bid ?? 0) }}</span>
+                <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
               </div>
               <div class="ob-side ob-sell">
                 <span class="ob-lbl">Venta</span>
-                <span class="ob-px num">{{ fmt(selectedRow()?.px_ask ?? 0) }}</span>
+                <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
                 <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
               </div>
             </div>
           </div>
 
-          <div class="op-ticket-row">
-            <label class="op-field">
-              <span class="of-lbl">Precio</span>
-              <select class="op-select" [ngModel]="ticketState().tipoPrecio" (ngModelChange)="setTipoPrecio($event)">
-                @for (t of tipoPrecioOpts; track t.id) {
-                  <option [value]="t.id">{{ t.label }}</option>
-                }
-              </select>
-            </label>
+          <div class="op-card op-order">
+            <h3>Orden</h3>
+            <div class="op-order-body">
+              <div class="op-ticket-row">
+                <label class="op-field">
+                  <span class="of-lbl">Precio</span>
+                  <select class="op-select" [ngModel]="ticketState().tipoPrecio" (ngModelChange)="setTipoPrecio($event)">
+                    @for (t of tipoPrecioOpts; track t.id) {
+                      <option [value]="t.id">{{ t.label }}</option>
+                    }
+                  </select>
+                </label>
 
-            @if (ticketState().tipoPrecio === 'limite') {
-              <label class="op-field">
-                <span class="of-lbl">Precio límite</span>
+                @if (ticketState().tipoPrecio === 'limite') {
+                  <label class="op-field">
+                    <span class="of-lbl">Precio límite</span>
+                    <input
+                      class="op-input num"
+                      type="number" min="0" step="0.01"
+                      [ngModel]="ticketState().precioLimite"
+                      (ngModelChange)="setPrecioLimite($event)"
+                    />
+                  </label>
+                }
+
+                <label class="op-field">
+                  <span class="of-lbl">Plazo de liquidación</span>
+                  <select class="op-select" [ngModel]="ticketState().plazo" (ngModelChange)="setPlazo($event)">
+                    @for (p of plazoOpts; track p.id) {
+                      <option [value]="p.id">{{ p.label }}</option>
+                    }
+                  </select>
+                </label>
+              </div>
+
+              <div class="op-field">
+                <span class="of-lbl">Cantidad</span>
+                <div class="op-stepper">
+                  <input
+                    class="op-step-input num"
+                    type="number" min="0" step="1"
+                    [ngModel]="ticketState().cantidad"
+                    (ngModelChange)="setCantidad($event)"
+                  />
+                  <button class="op-step-btn" type="button" (click)="decCantidad()" [disabled]="ticketState().cantidad <= 0">−</button>
+                  <button class="op-step-btn" type="button" (click)="incCantidad()">+</button>
+                </div>
+              </div>
+
+              <div class="op-field">
+                <div class="of-row">
+                  <span class="of-lbl">Monto a invertir</span>
+                  @if (montoBelowMinimum()) {
+                    <span class="of-hint of-hint-warn">No alcanza para 1 nominal · mín. $ {{ fmt(precioEfectivo()) }}</span>
+                  } @else {
+                    <!-- TODO: viene de estadocuenta si se habilita más adelante -->
+                    <span class="of-hint">Disponible: $ 0,00</span>
+                  }
+                </div>
                 <input
-                  class="op-input num"
-                  type="number" min="0" step="0.01"
-                  [ngModel]="ticketState().precioLimite"
-                  (ngModelChange)="setPrecioLimite($event)"
+                  class="op-input op-input-monto num"
+                  type="number" min="0" step="100"
+                  [ngModel]="ticketState().monto"
+                  (ngModelChange)="setMonto($event)"
                 />
-              </label>
-            }
-
-            <label class="op-field">
-              <span class="of-lbl">Plazo de liquidación</span>
-              <select class="op-select" [ngModel]="ticketState().plazo" (ngModelChange)="setPlazo($event)">
-                @for (p of plazoOpts; track p.id) {
-                  <option [value]="p.id">{{ p.label }}</option>
-                }
-              </select>
-            </label>
-          </div>
-
-          <div class="op-field">
-            <span class="of-lbl">Cantidad</span>
-            <div class="op-stepper">
-              <button class="op-step-btn" type="button" (click)="decCantidad()" [disabled]="ticketState().cantidad <= 0">−</button>
-              <input
-                class="op-step-input num"
-                type="number" min="0" step="1"
-                [ngModel]="ticketState().cantidad"
-                (ngModelChange)="setCantidad($event)"
-              />
-              <button class="op-step-btn" type="button" (click)="incCantidad()">+</button>
+              </div>
             </div>
           </div>
 
-          <div class="op-field">
-            <span class="of-lbl">Monto a invertir</span>
-            <input
-              class="op-input num"
-              type="number" min="0" step="100"
-              [ngModel]="ticketState().monto"
-              (ngModelChange)="setMonto($event)"
-            />
-            <!-- TODO: viene de estadocuenta si se habilita más adelante -->
-            <span class="of-hint">Disponible: $ 0,00</span>
-          </div>
-
-          <button class="op-buy-sticky" type="button" [disabled]="ticketState().cantidad <= 0" (click)="goTicketConfirmar()">
+          <button class="op-buy-sticky op-buy-sticky-sm" type="button" [disabled]="ticketState().cantidad <= 0" (click)="goTicketConfirmar()">
             Revisar orden
           </button>
         } @else {
@@ -705,6 +722,9 @@ const FONDOS: FondoCard[] = [
       border: 0; background: transparent; padding: 0; margin: 0 0 12px; cursor: pointer;
     }
     .op-book-toggle h3 { margin: 0; }
+    .ob-title-wrap { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+    .ob-title-wrap h3 { margin: 0; }
+    .op-book-toggle .ob-title-wrap { margin: 0; }
     .ob-chevron { color: var(--ink-3); font-size: 16px; transition: transform .16s cubic-bezier(.16,1,.3,1); }
     .ob-chevron.open { transform: rotate(90deg); }
     .op-book-row { display: flex; gap: 14px; }
@@ -733,6 +753,12 @@ const FONDOS: FondoCard[] = [
     .op-buy-sticky:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
     .op-buy-sticky:disabled:hover { opacity: .5; }
     .op-buy-sticky:disabled:active { transform: none; }
+    /* Paso 1 del Ticket ("Revisar orden"): mismo botón pero menos pesado
+       frente al resto de la card Orden — Ficha/Paso 2 conservan 46px. */
+    .op-buy-sticky-sm { height: 42px; }
+
+    /* Ticket — card "Orden" (Precio/Plazo/Cantidad/Monto), separada de Puntas */
+    .op-order-body { display: flex; flex-direction: column; gap: 18px; }
 
     /* Ticket — fila de selects (Precio / Precio límite / Plazo) */
     .op-ticket-row { display: flex; gap: 14px; flex-wrap: wrap; }
@@ -745,26 +771,35 @@ const FONDOS: FondoCard[] = [
     }
     .op-select:focus, .op-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
     .op-input.num { font-family: var(--font-mono); }
-    .of-hint { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+    /* Monto a invertir — protagonista de la pantalla, mismo tratamiento que
+       Panel usa para precios destacados (mono, bold, tamaño elevado). */
+    .op-input-monto { height: 48px; font-size: 20px; font-weight: 700; }
+    /* Fila de label del campo Monto: "Monto a invertir" a la izquierda,
+       "Disponible" (o el aviso) a la derecha, misma línea de base — mismo
+       patrón que .orr-lbl/.orr-right de Referencia (Home). */
+    .of-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .of-hint { font-size: 11px; color: var(--ink-3); }
+    .of-hint-warn { color: var(--warn); font-weight: 600; }
 
-    /* Ticket — stepper de cantidad */
+    /* Ticket — fila de Cantidad: el input manda (flex-grow), −/+ quedan
+       como botones compactos de tamaño fijo al lado (ver docs/design-refs/compra2.png). */
     .op-stepper { display: flex; align-items: center; gap: 8px; }
-    .op-step-btn {
-      width: 36px; height: 36px; border: 1px solid var(--line); border-radius: var(--r-sm);
-      background: var(--surface); color: var(--ink); font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer;
-      transition: border-color .12s, transform .04s;
-    }
-    .op-step-btn:hover:not(:disabled) { border-color: var(--line-2); }
-    .op-step-btn:active:not(:disabled) { transform: translateY(1px); }
-    .op-step-btn:disabled { opacity: .5; cursor: not-allowed; }
     .op-step-input {
-      width: 90px; height: 36px; text-align: center;
+      flex: 1; min-width: 0; height: 40px; padding: 0 12px; text-align: left;
       border: 1px solid var(--line); border-radius: var(--r-sm);
       background: var(--surface); color: var(--ink);
       font-family: var(--font-mono); font-size: 15px; font-weight: 600; outline: none;
       transition: border-color .12s, box-shadow .12s;
     }
     .op-step-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
+    .op-step-btn {
+      flex: 0 0 32px; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--surface); color: var(--ink); font-size: 16px; font-weight: 700; line-height: 1; cursor: pointer;
+      transition: border-color .12s, transform .04s;
+    }
+    .op-step-btn:hover:not(:disabled) { border-color: var(--line-2); }
+    .op-step-btn:active:not(:disabled) { transform: translateY(1px); }
+    .op-step-btn:disabled { opacity: .5; cursor: not-allowed; }
 
     /* Ticket — resumen del Paso 2, mismo patrón visual de lista que Referencia
        (Home) pero sin comportamiento tappable (son filas de sólo lectura). */
@@ -1032,14 +1067,30 @@ export class OperarComponent implements OnInit {
       .join(' ');
   });
 
+  // Precio efectivo del Paso 1: precio límite si el usuario eligió esa
+  // modalidad, si no el precio de VENTA del libro (columna Venta, px_ask —
+  // es lo que se paga al comprar, no px_bid que es la oferta de otros) con
+  // el fallback de último cierre si el libro está vacío (ver bookAskPx).
+  precioEfectivo = computed<number>(() => {
+    const s = this.ticketState();
+    if (s.tipoPrecio === 'limite') return s.precioLimite ?? 0;
+    return this.bookAskPx(this.selectedRow());
+  });
+
+  // El monto tipeado no alcanza para 1 nominal entero al precio efectivo:
+  // se muestra un aviso en vez de dejar el monto en 0 silenciosamente.
+  montoBelowMinimum = computed<boolean>(() => {
+    const s = this.ticketState();
+    const px = this.precioEfectivo();
+    return !!s.monto && s.monto > 0 && px > 0 && Math.floor(s.monto / px) === 0;
+  });
+
   // Monto estimado para el resumen del Paso 2: si el usuario cargó un monto
-  // en el Paso 1 se respeta tal cual; si no, se estima cantidad × precio
-  // (límite si corresponde, si no el precio real ya cacheado del símbolo).
+  // en el Paso 1 se respeta tal cual; si no, se estima cantidad × precio efectivo.
   montoEstimado = computed<number>(() => {
     const s = this.ticketState();
     if (s.monto && s.monto > 0) return s.monto;
-    const px = s.tipoPrecio === 'limite' && s.precioLimite ? s.precioLimite : this.price(this.selectedRow());
-    return s.cantidad * px;
+    return s.cantidad * this.precioEfectivo();
   });
 
   ngOnInit() {
@@ -1073,6 +1124,24 @@ export class OperarComponent implements OnInit {
     const px = +(row as any)?.px_bid;
     if (px > 0) return px;
     return +(row as any)?.c || 0;
+  }
+
+  // Libro sin puntas activas (mercado cerrado). Se usa para mostrar el
+  // fallback de último cierre en el mini-libro en vez de "$0,00".
+  bookIsEmpty(row: PanelRow | CedearRow | null | undefined): boolean {
+    return (+(row as any)?.q_bid || 0) === 0 && (+(row as any)?.q_ask || 0) === 0;
+  }
+
+  lastClose(row: PanelRow | CedearRow | null | undefined): number {
+    return +(row as any)?.c || 0;
+  }
+
+  bookBidPx(row: PanelRow | CedearRow | null | undefined): number {
+    return this.bookIsEmpty(row) ? this.lastClose(row) : +(row as any)?.px_bid || 0;
+  }
+
+  bookAskPx(row: PanelRow | CedearRow | null | undefined): number {
+    return this.bookIsEmpty(row) ? this.lastClose(row) : +(row as any)?.px_ask || 0;
   }
 
   selectInstrument(id: InstrumentId) {
@@ -1191,30 +1260,69 @@ export class OperarComponent implements OnInit {
 
   setTipoPrecio(t: TicketTipoPrecio) {
     this.ticketState.update((s) => ({ ...s, tipoPrecio: t }));
+    this.syncMontoFromCantidad();
   }
 
   setPrecioLimite(v: number) {
     this.ticketState.update((s) => ({ ...s, precioLimite: +v >= 0 ? +v : 0 }));
+    this.syncMontoFromCantidad();
   }
 
   setPlazo(p: TicketPlazo) {
     this.ticketState.update((s) => ({ ...s, plazo: p }));
   }
 
+  // Cantidad es el campo primario: cada cambio recalcula Monto = cantidad ×
+  // precioEfectivo (columna Venta o límite, ver precioEfectivo()).
   incCantidad() {
-    this.ticketState.update((s) => ({ ...s, cantidad: s.cantidad + 1 }));
+    const px = this.precioEfectivo();
+    this.ticketState.update((s) => {
+      const cantidad = s.cantidad + 1;
+      return { ...s, cantidad, monto: px > 0 ? cantidad * px : s.monto };
+    });
   }
 
   decCantidad() {
-    this.ticketState.update((s) => ({ ...s, cantidad: Math.max(0, s.cantidad - 1) }));
+    const px = this.precioEfectivo();
+    this.ticketState.update((s) => {
+      const cantidad = Math.max(0, s.cantidad - 1);
+      return { ...s, cantidad, monto: px > 0 ? cantidad * px : s.monto };
+    });
   }
 
   setCantidad(v: number) {
-    this.ticketState.update((s) => ({ ...s, cantidad: Math.max(0, Math.floor(+v) || 0) }));
+    const cantidad = Math.max(0, Math.floor(+v) || 0);
+    const px = this.precioEfectivo();
+    this.ticketState.update((s) => ({ ...s, cantidad, monto: px > 0 ? cantidad * px : s.monto }));
   }
 
+  // Monto es editable, pero nunca queda en un valor arbitrario: se recalcula
+  // Cantidad = floor(monto / precioEfectivo) y con eso se vuelve a recalcular
+  // Monto = cantidad × precioEfectivo (múltiplo entero de nominales). Si no
+  // alcanza para 1 nominal, se conserva el valor tipeado (sin forzarlo a 0)
+  // y el estado se comunica vía montoBelowMinimum() en el template.
   setMonto(v: number) {
-    this.ticketState.update((s) => ({ ...s, monto: +v >= 0 ? +v : 0 }));
+    const montoRaw = +v >= 0 ? +v : 0;
+    const px = this.precioEfectivo();
+    if (px <= 0) {
+      this.ticketState.update((s) => ({ ...s, monto: montoRaw }));
+      return;
+    }
+    const cantidad = Math.floor(montoRaw / px);
+    if (cantidad <= 0) {
+      this.ticketState.update((s) => ({ ...s, cantidad: 0, monto: montoRaw }));
+      return;
+    }
+    this.ticketState.update((s) => ({ ...s, cantidad, monto: cantidad * px }));
+  }
+
+  // Sincroniza Monto tras un cambio de precio (tipo o límite) que no vino de
+  // Cantidad/Monto directamente, para no dejar un monto stale que ya no
+  // corresponda a cantidad × precioEfectivo.
+  private syncMontoFromCantidad() {
+    const px = this.precioEfectivo();
+    if (px <= 0) return;
+    this.ticketState.update((s) => (s.cantidad > 0 ? { ...s, monto: s.cantidad * px } : s));
   }
 
   plazoLabel(id: TicketPlazo): string {
