@@ -40,6 +40,53 @@
       <span>s</span>
     </label>
 
+    <!-- Horario de mercado editable: pisa el default de market-hours.config.ts,
+         persiste en localStorage y aplica de inmediato (ver applyMarketHours en app.ts). -->
+    <div class="dropdown">
+      <button
+        type="button"
+        class="hours-trigger"
+        [class.on]="hoursMenuOpen()"
+        title="Horario de mercado"
+        (click)="toggleHoursMenu()"
+      >
+        <span>{{ marketHoursOpenInput() }}–{{ marketHoursCloseInput() }}</span>
+        <svg class="chev" [class.up]="hoursMenuOpen()" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+
+      @if (hoursMenuOpen()) {
+        <div class="menu mh-menu">
+          <div class="mh-row">
+            <label class="mh-field">
+              <span class="mi-label">Apertura</span>
+              <input
+                class="mh-input"
+                [class.err]="marketHoursError()"
+                type="time"
+                step="60"
+                [ngModel]="marketHoursOpenInput()"
+                (ngModelChange)="setMarketHoursOpen($event)"
+              />
+            </label>
+            <label class="mh-field">
+              <span class="mi-label">Cierre</span>
+              <input
+                class="mh-input"
+                [class.err]="marketHoursError()"
+                type="time"
+                step="60"
+                [ngModel]="marketHoursCloseInput()"
+                (ngModelChange)="setMarketHoursClose($event)"
+              />
+            </label>
+          </div>
+          @if (marketHoursError()) {
+            <div class="mh-error">Apertura tiene que ser antes que cierre.</div>
+          }
+        </div>
+      }
+    </div>
+
     <!-- Toggle modo simple/avanzado — solo aplica a Cotizaciones. -->
     @if (view() === 'cotizaciones') {
       <div class="seg seg-mode" title="Nivel de detalle de Cotizaciones">
@@ -48,9 +95,13 @@
       </div>
     }
 
-    <button class="toggle" [class.paused]="paused()" (click)="togglePause()">
-      <span class="live-dot" [class.off]="paused()"></span>
-      {{ paused() ? 'Pausado' : 'En vivo' }}
+    <button class="toggle" [class.paused]="effectivePaused()" (click)="togglePause()">
+      <span class="live-dot" [class.off]="effectivePaused()"></span>
+      @if (marketClosedAutoPause()) {
+        Mercado cerrado
+      } @else {
+        {{ paused() ? 'Pausado' : 'En vivo' }}
+      }
     </button>
 
     <button class="alert-toggle" [class.on]="alertsEnabled()" (click)="toggleAlerts()"
@@ -65,6 +116,10 @@
     </button>
   </div>
 </header>
+
+@if (hoursMenuOpen()) {
+  <div class="backdrop" (click)="closeHoursMenu()"></div>
+}
 
 @if (activeAlerts().length) {
   <div class="alert-bar" role="status" aria-live="polite">
@@ -91,8 +146,8 @@
       }
       <strong>{{ subbarTitle() }}</strong>
       <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
-      @if (paused()) {
-        <span class="pill warn">Snapshot congelado</span>
+      @if (effectivePaused()) {
+        <span class="pill warn">{{ marketClosedAutoPause() ? 'Mercado cerrado' : 'Snapshot congelado' }}</span>
       }
     </div>
 
@@ -118,8 +173,9 @@
       [dollarType]="activeArbTab()!.dollarType"
       [settlement]="activeArbTab()!.settlement"
       [ciIsReal]="activeCiIsReal()"
-      [paused]="paused()"
+      [paused]="effectivePaused()"
       (pausedChange)="paused.set($event)"
+      [marketClosed]="marketClosedAutoPause()"
     />
   } @else if (detailPanel() === 'mapa-cedears') {
     @if (errors()['cedears']) {

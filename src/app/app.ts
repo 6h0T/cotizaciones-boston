@@ -14,6 +14,7 @@ import {
 } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
+import { isMarketOpen, isValidTimeRange, saveMarketHoursOverride, getEffectiveMarketHours } from './market-hours.config';
 
 interface PanelDef {
   id: string;
@@ -141,6 +142,15 @@ export class App implements OnInit, OnDestroy {
   feedSource = signal<Record<string, boolean | undefined>>({});
 
   paused = signal(false);
+  marketClosedAutoPause = signal(false);
+  effectivePaused = computed(() => this.paused() || this.marketClosedAutoPause());
+  // Horario de mercado editable (dropdown "Horario" del toolbar). Arranca
+  // desde el override guardado en localStorage o, si no hay, el default de
+  // market-hours.config.ts — ese archivo sigue siendo el fallback real.
+  hoursMenuOpen = signal(false);
+  marketHoursOpenInput = signal<string>(getEffectiveMarketHours().open);
+  marketHoursCloseInput = signal<string>(getEffectiveMarketHours().close);
+  marketHoursError = signal(false);
   intervalSec = signal<number>(DEFAULTS.refreshSec);
   // Modo de la pantalla Cotizaciones (Ley de Hick): 'basico' muestra solo lo
   // esencial; 'avanzado' el mosaico completo. Persiste en localStorage.
@@ -251,6 +261,7 @@ export class App implements OnInit, OnDestroy {
   });
 
   ngOnInit() {
+    this.marketClosedAutoPause.set(!isMarketOpen());
     this.refreshAll();
     this.startTimer();
     // Primer gesto en la página → desbloquear el audio (política de autoplay)
@@ -269,7 +280,9 @@ export class App implements OnInit, OnDestroy {
   private startTimer() {
     this.sub?.unsubscribe();
     this.sub = timer(this.intervalSec() * 1000, this.intervalSec() * 1000).subscribe(() => {
-      if (!this.paused()) this.refreshAll();
+      const open = isMarketOpen();
+      this.marketClosedAutoPause.set(!open);
+      if (!this.paused() && open) this.refreshAll();
     });
   }
 
@@ -286,6 +299,37 @@ export class App implements OnInit, OnDestroy {
     try { localStorage.setItem('boston-cot-mode', m); } catch {}
   }
 
+  toggleHoursMenu() {
+    this.hoursMenuOpen.update((v) => !v);
+  }
+
+  closeHoursMenu() {
+    this.hoursMenuOpen.set(false);
+  }
+
+  setMarketHoursOpen(v: string) {
+    this.marketHoursOpenInput.set(v);
+    this.applyMarketHours();
+  }
+
+  setMarketHoursClose(v: string) {
+    this.marketHoursCloseInput.set(v);
+    this.applyMarketHours();
+  }
+
+  // Valida apertura < cierre; si no vale, marca el error y NO persiste (el
+  // último valor válido guardado sigue rigiendo). Si vale, persiste y
+  // reevalúa isMarketOpen() ya mismo — no espera al próximo tick del timer.
+  private applyMarketHours() {
+    const open = this.marketHoursOpenInput();
+    const close = this.marketHoursCloseInput();
+    const valid = isValidTimeRange(open, close);
+    this.marketHoursError.set(!valid);
+    if (!valid) return;
+    saveMarketHoursOverride(open, close);
+    this.marketClosedAutoPause.set(!isMarketOpen());
+  }
+
   refreshAll() {
     // Ciclos independientes: los feeds rápidos no esperan al burst CI lento
     // ni al ciclo Yahoo (que además corre cada YAHOO_REFRESH_MS, no cada tick).
@@ -296,6 +340,7 @@ export class App implements OnInit, OnDestroy {
 
   // Índices internacionales y ETFs (Yahoo spark, 1 request por casillero).
   private refreshIndices() {
+    if (!isMarketOpen()) return;
     const now = Date.now();
     if (this.yahooInFlight || now - this.lastYahooMs < YAHOO_REFRESH_MS) return;
     this.yahooInFlight = true;
@@ -398,6 +443,7 @@ export class App implements OnInit, OnDestroy {
   // viene vacío; más dólar e IOL 24hs de CEDEARs. Renderiza en cuanto llegan,
   // sin bloquearse por el burst CI (que va en refreshT0()).
   private refreshFast() {
+    if (!isMarketOpen()) return;
     if (this.loading()) return;
     this.loading.set(true);
     // El casillero CEDEARs ya no se pide a data912: lo llena la cadena
@@ -501,6 +547,7 @@ export class App implements OnInit, OnDestroy {
   // hasta que el burst anterior terminó). Sin fuente real, el motor estima el
   // CI desde el libro de 24hs (iolSource.t0=false).
   private refreshT0() {
+    if (!isMarketOpen()) return;
     if (this.t0InFlight) return;
     this.t0InFlight = true;
     this.fetchCedears('CI').subscribe(({ rows, src }) => {

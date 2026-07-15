@@ -158,10 +158,26 @@ async function fetchT0Quote(token, sym) {
 // más líquidos por sufijo. Volumen efectivo = misma convención que el motor:
 //   buyLeg  = min(qArsAsk, qUsdBid) * usdBid
 //   sellLeg = min(qUsdAsk, qArsBid) * usdAsk
+//
+// La selección (qué símbolos entran, top N por volumen) es independiente por
+// sufijo D/C — eso NO cambia. Lo que sí importa es el ORDEN del array final:
+// las dos pasadas se resuelven primero, y recién después se arma un único
+// array agrupando TODAS las patas de un mismo base de forma contigua (base,
+// baseD si aplica, baseC si aplica). Antes se armaba con un Set poblado en
+// dos pasadas (D completa, después C): un base líquido en ambos sufijos
+// quedaba con su pata D temprano (primera pasada) y su pata C recién al
+// final (Set.add es no-op si ya existe, así que la posición original de
+// `base` no se movía, pero `baseC` se insertaba después de hasta ~60
+// entradas D). Con mapLimit despachando por índice entre 20 workers, eso
+// separaba ambas patas del mismo par por el largo entero del burst (medido:
+// hasta ~1.4s — ver vicend-arbitraje-batch). Agrupar por base elimina esa
+// separación: las patas de un mismo par quedan en la misma ronda de
+// concurrencia o una adyacente.
 function pickLiquidSymbols(rows, minUsd, topPerSuffix) {
   const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
-  const picked = new Set();
 
+  // Selección sin cambios: top N por volumen efectivo, independiente por sufijo.
+  const selectedBySuffix = { D: new Set(), C: new Set() };
   for (const suffix of ['D', 'C']) {
     const scored = [];
     for (const ars of rows) {
@@ -174,15 +190,22 @@ function pickLiquidSymbols(rows, minUsd, topPerSuffix) {
       const sellLeg = Math.min(usd.q_ask, ars.q_bid) * usd.px_ask;
       const vol = Math.max(buyLeg, sellLeg);
       if (vol < minUsd) continue;
-      scored.push({ base, usdSym: base + suffix, vol });
+      scored.push({ base, vol });
     }
     scored.sort((a, b) => b.vol - a.vol);
-    for (const s of scored.slice(0, topPerSuffix)) {
-      picked.add(s.base);
-      picked.add(s.usdSym);
-    }
+    for (const s of scored.slice(0, topPerSuffix)) selectedBySuffix[suffix].add(s.base);
   }
-  return [...picked];
+
+  // Array final: un base por vez, con TODAS sus patas seleccionadas justo
+  // al lado (base, baseD, baseC) — sin duplicados, sin cambiar qué se eligió.
+  const bases = new Set([...selectedBySuffix.D, ...selectedBySuffix.C]);
+  const symbols = [];
+  for (const base of bases) {
+    symbols.push(base);
+    if (selectedBySuffix.D.has(base)) symbols.push(base + 'D');
+    if (selectedBySuffix.C.has(base)) symbols.push(base + 'C');
+  }
+  return symbols;
 }
 
 // map con concurrencia acotada; los fallos individuales devuelven null.

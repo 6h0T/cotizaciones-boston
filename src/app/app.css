@@ -103,6 +103,65 @@
 .rate input::-webkit-outer-spin-button,
 .rate input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
+/* Dropdown "Horario" — mismo patrón que el dropdown de paneles que hubo en
+   el navbar (removido en af7385a): .dropdown/.chev/.menu con la animación
+   menu-in de 140ms y .backdrop para cerrar al clickear afuera. */
+.dropdown { position: relative; }
+.hours-trigger {
+  height: 32px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r-sm); cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink);
+  transition: border-color .12s, background .12s;
+}
+.hours-trigger:hover { border-color: var(--line-2); }
+.hours-trigger.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.chev { transition: transform .18s cubic-bezier(.16,1,.3,1); opacity: .6; }
+.chev.up { transform: rotate(180deg); }
+
+.menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  min-width: 248px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  z-index: 40;
+  animation: menu-in .14s cubic-bezier(.16,1,.3,1);
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+.mi-label {
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-3);
+}
+
+.mh-menu { padding: 10px; min-width: 220px; }
+.mh-row { display: flex; gap: 10px; }
+.mh-field { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.mh-input {
+  height: 32px; padding: 0 8px;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r-sm); outline: none;
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink);
+  transition: border-color .12s, box-shadow .12s;
+}
+.mh-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
+.mh-input.err { border-color: var(--neg-line); background: var(--neg-bg); }
+.mh-error {
+  margin-top: 8px; padding: 6px 8px; border-radius: var(--r-sm);
+  background: var(--neg-bg); border: 1px solid var(--neg-line); color: var(--neg);
+  font-size: 11px; line-height: 1.4;
+}
+
+.backdrop { position: fixed; inset: 0; z-index: 20; }
+
 .toggle {
   height: 32px; padding: 0 12px;
   display: inline-flex; align-items: center; gap: 7px;

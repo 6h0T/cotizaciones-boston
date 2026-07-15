@@ -100,12 +100,21 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
         <div class="freeze-bar">
           <svg class="fb-lock" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <div class="fb-text">
-            <strong>Congelado para operar</strong>
-            <span>
-              El refresh está pausado: la selección y los precios no cambian.
-              @if (selectedBuy(); as b) { Comprás <b>{{ b.base }}</b>. }
-              @if (selectedSell(); as s) { Vendés <b>{{ s.base }}</b>. }
-            </span>
+            @if (marketClosed()) {
+              <strong>Mercado cerrado</strong>
+              <span>
+                El refresh se reanudará automáticamente en horario de rueda.
+                @if (selectedBuy(); as b) { Comprás <b>{{ b.base }}</b>. }
+                @if (selectedSell(); as s) { Vendés <b>{{ s.base }}</b>. }
+              </span>
+            } @else {
+              <strong>Congelado para operar</strong>
+              <span>
+                El refresh está pausado: la selección y los precios no cambian.
+                @if (selectedBuy(); as b) { Comprás <b>{{ b.base }}</b>. }
+                @if (selectedSell(); as s) { Vendés <b>{{ s.base }}</b>. }
+              </span>
+            }
           </div>
           <button class="fb-resume" (click)="unfreeze()">Reanudar en vivo</button>
         </div>
@@ -649,6 +658,9 @@ export class ArbitrageComponent {
   // Estado de pausa global (refresh congelado). Two-way con el shell.
   paused = input<boolean>(false);
   pausedChange = output<boolean>();
+  // true = la pausa la disparó el horario de mercado cerrado (auto), no el
+  // usuario — el freeze-bar necesita distinguir el mensaje entre las dos causas.
+  marketClosed = input<boolean>(false);
 
   // --- Internal signals ---
   amountArs = signal<number>(DEFAULTS.amountArs);
