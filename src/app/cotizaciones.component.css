@@ -10,6 +10,7 @@
   grid-template-columns: repeat(3, 1fr);
   align-items: start;
   gap: 14px;
+  max-width: 100%;
 }
 .col {
   display: flex;
@@ -178,4 +179,15 @@
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 1000px) {
   .mosaic { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .heat-tile { margin-bottom: 10px; }
+  .tile-head { padding: 8px 12px; }
+  .tile-body table { font-size: 11px; }
+  .tile-body th, .tile-body td { padding: 5px 8px; }
+  .tile-name { font-size: 12px; }
+  .dolar-row { padding: 8px 12px; }
+  .dolar-casa { font-size: 11px; }
+  .dolar-val b { font-size: 13px; }
 }

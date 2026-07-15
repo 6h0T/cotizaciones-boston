@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal, afterNextRender, DestroyRef, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { cedearMeta } from './cedears-meta';
@@ -107,73 +107,149 @@ interface HeatSector {
   imports: [CommonModule],
   template: `
     @if (sectors().length) {
-      <div class="map" (mousemove)="onMove($event)" (mouseleave)="hovered.set(null)">
-        @for (s of sectors(); track s.name) {
-          <div
-            class="sector"
-            [style.left.%]="s.x" [style.top.%]="s.y"
-            [style.width.%]="s.w" [style.height.%]="s.h"
-          >
-            <div class="sector-head" [style.height.%]="s.headPct"><span>{{ s.name }}</span></div>
-            <div class="sector-body">
-              @for (c of s.cells; track c.symbol) {
-                <div
-                  class="cell"
-                  [style.left.%]="c.x" [style.top.%]="c.y"
-                  [style.width.%]="c.w" [style.height.%]="c.h"
-                  [style.background]="c.bg" [style.color]="c.fg"
-                  [class.hover]="hovered()?.symbol === c.symbol"
-                  (mouseenter)="hovered.set(c)"
-                >
-                  @if (c.showSym) {
-                    <span class="sym" [style.font-size.px]="c.fsSym">{{ c.symbol }}</span>
-                    @if (c.showPct) {
-                      <span class="pct num" [style.font-size.px]="c.fsSym - 2">{{ fmtPct(c.pct) }}</span>
-                    }
-                  }
-                </div>
-              }
+      @if (isMobile()) {
+        <div class="mobile-cards">
+          @for (s of sectors(); track s.name) {
+            <div class="sector-card">
+              <div class="card-head">{{ s.name }}</div>
+              <div class="card-body">
+                @for (c of s.cells.slice(0, 5); track c.symbol) {
+                  <div class="ticker-row" [style.background]="c.bg" [style.color]="c.fg">
+                    <span class="ticker-sym">{{ c.symbol }}</span>
+                    <span class="ticker-pct">{{ fmtPct(c.pct) }}</span>
+                  </div>
+                }
+              </div>
             </div>
-          </div>
-        }
+          }
+        </div>
+      } @else {
+        <div class="map" (mousemove)="onMove($event)" (mouseleave)="hovered.set(null)">
+          @for (s of sectors(); track s.name) {
+            <div
+              class="sector"
+              [style.left.%]="s.x" [style.top.%]="s.y"
+              [style.width.%]="s.w" [style.height.%]="s.h"
+            >
+              <div class="sector-head" [style.height.%]="s.headPct"><span>{{ s.name }}</span></div>
+              <div class="sector-body">
+                @for (c of s.cells; track c.symbol) {
+                  <div
+                    class="cell"
+                    [style.left.%]="c.x" [style.top.%]="c.y"
+                    [style.width.%]="c.w" [style.height.%]="c.h"
+                    [style.background]="c.bg" [style.color]="c.fg"
+                    [class.hover]="hovered()?.symbol === c.symbol"
+                    (mouseenter)="hovered.set(c)"
+                  >
+                    @if (c.showSym) {
+                      <span class="sym" [style.font-size.px]="c.fsSym">{{ c.symbol }}</span>
+                      @if (c.showPct) {
+                        <span class="pct num" [style.font-size.px]="c.fsSym - 2">{{ fmtPct(c.pct) }}</span>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
 
-        @if (hovered(); as hc) {
-          <div class="tip" [style.left.px]="tipX()" [style.top.px]="tipY()">
-            <b>{{ hc.symbol }}</b>
-            <span class="sec">{{ hc.sector }} · cap. {{ fmtCap(hc.capBn) }}</span>
-            <span class="num">Último {{ fmt(hc.last) }}</span>
-            <span class="num" [style.color]="hc.pct >= 0 ? '#7ee2a5' : '#f1a3a3'">{{ fmtPct(hc.pct) }} hoy</span>
-            <span class="num vol">Vol. {{ fmtVol(hc.vol) }}</span>
-          </div>
-        }
-      </div>
+          @if (hovered(); as hc) {
+            <div class="tip" [style.left.px]="tipX()" [style.top.px]="tipY()">
+              <b>{{ hc.symbol }}</b>
+              <span class="sec">{{ hc.sector }} · cap. {{ fmtCap(hc.capBn) }}</span>
+              <span class="num">Último {{ fmt(hc.last) }}</span>
+              <span class="num" [style.color]="hc.pct >= 0 ? '#7ee2a5' : '#f1a3a3'">{{ fmtPct(hc.pct) }} hoy</span>
+              <span class="num vol">Vol. {{ fmtVol(hc.vol) }}</span>
+            </div>
+          }
+        </div>
+      }
 
       <div class="legend">
         <span class="cap">% Día</span>
         @for (l of legend; track l.label) {
           <span class="key"><i [style.background]="l.bg"></i>{{ l.label }}</span>
         }
-        <span class="cap area">área = capitalización bursátil · agrupado por sector</span>
+        @if (!isMobile()) {
+          <span class="cap area">área = capitalización bursátil · agrupado por sector</span>
+        }
       </div>
     } @else {
       <div class="empty">Sin datos.</div>
     }
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; max-width: 100%; overflow-x: hidden; }
     .map {
       position: relative;
-      height: 430px;
+      width: 100%;
+      aspect-ratio: 1000 / 430;
       overflow: hidden;
       background: var(--surface-3);
     }
-    :host(.full) .map { height: max(600px, calc(100vh - 230px)); }
-    /* fill: el mapa absorbe el alto libre del contenedor flex (modo simple). */
+    :host(.full) .map { height: max(600px, calc(100vh - 230px)); aspect-ratio: unset; }
     :host(.fill) {
       display: flex; flex-direction: column;
       flex: 1; min-height: 0;
     }
-    :host(.fill) .map { flex: 1; height: auto; min-height: 320px; }
+    :host(.fill) .map { flex: 1; height: auto; min-height: 320px; aspect-ratio: unset; }
+
+    @media (max-width: 600px) {
+      .map { aspect-ratio: 4 / 3; }
+      :host(.full) .map { height: max(400px, calc(100dvh - 180px)); }
+      :host(.fill) .map { min-height: 240px; }
+    }
+
+    .mobile-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px;
+    }
+    .sector-card {
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .card-head {
+      padding: 13px 16px;
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--line);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .card-body {
+      display: flex;
+      flex-direction: column;
+    }
+    .ticker-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--surface-3);
+    }
+    .ticker-row:last-child { border-bottom: none; }
+    .ticker-sym {
+      font-family: var(--font-ui);
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .ticker-pct {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      font-size: 15px;
+    }
 
     .sector {
       position: absolute;
@@ -208,8 +284,8 @@ interface HeatSector {
       cursor: default;
     }
     .cell.hover { filter: brightness(1.06); box-shadow: inset 0 0 0 2px rgba(26,26,29,.35); }
-    .sym { font-family: var(--font-ui); font-weight: 700; line-height: 1.05; letter-spacing: .01em; }
-    .pct { line-height: 1.05; }
+    .sym { font-family: var(--font-ui); font-weight: 700; line-height: 1.05; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .pct { line-height: 1.05; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
     .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
     .tip {
@@ -249,14 +325,36 @@ export class CedearsHeatmapComponent {
   // fill: estira el mapa al alto disponible del contenedor flex (modo simple).
   fill = input<boolean>(false);
 
+  private el = inject<ElementRef<HTMLElement>>(ElementRef);
+  private destroyRef = inject(DestroyRef);
+  private hostWidth = signal(0);
+  isMobile = computed(() => this.hostWidth() > 0 && this.hostWidth() < 768);
+
+  constructor() {
+    afterNextRender(() => {
+      const h = this.el.nativeElement;
+      const ro = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentBoxSize?.[0]?.inlineSize ?? entries[0]?.contentRect.width ?? 0;
+        if (w > 0) this.hostWidth.set(Math.round(w));
+      });
+      ro.observe(h);
+      this.destroyRef.onDestroy(() => ro.disconnect());
+    });
+  }
+
   hovered = signal<HeatCell | null>(null);
-  private mouse = signal<{ x: number; y: number; maxX: number; maxY: number }>({ x: 0, y: 0, maxX: 1000, maxY: 430 });
+  private mouse = signal<{ x: number; y: number; maxX: number; maxY: number }>({ x: 0, y: 0, maxX: COMPACT_W, maxY: COMPACT_H });
 
   legend = BIN_BG.map((bg, i) => ({ bg, label: BIN_LABELS[i] }));
 
   sectors = computed<HeatSector[]>(() => {
-    const W = this.full() ? FULL_W : COMPACT_W;
-    const H = this.full() ? FULL_H : (this.fill() ? FILL_H : COMPACT_H);
+    const actualW = this.hostWidth();
+    const W = this.full() ? FULL_W : (actualW > 0 ? actualW : COMPACT_W);
+    const H = this.full()
+      ? FULL_H
+      : (this.fill()
+        ? Math.round(W * (FILL_H / COMPACT_W))
+        : Math.round(W * (COMPACT_H / COMPACT_W)));
 
     // Solo entran los tickers con sector/cap mapeados (excluye variantes USD
     // comprimidas y duplicados B3/ADR — ver cedears-meta.ts).
