@@ -27,7 +27,7 @@ export interface MarketHoursConfig {
 
 export const MARKET_HOURS: MarketHoursConfig = {
   enabled: true,
-  open: '11:00',
+  open: '10:30',
   close: '17:00',
   timezone: 'America/Argentina/Buenos_Aires',
   workdays: [1, 2, 3, 4, 5],

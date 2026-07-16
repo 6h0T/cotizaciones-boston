@@ -114,9 +114,9 @@ interface HeatSector {
               <div class="card-head">{{ s.name }}</div>
               <div class="card-body">
                 @for (c of s.cells.slice(0, 5); track c.symbol) {
-                  <div class="ticker-row" [style.background]="c.bg" [style.color]="c.fg">
+                  <div class="ticker-row" [class.pos]="c.pct >= 0" [class.neg]="c.pct < 0">
                     <span class="ticker-sym">{{ c.symbol }}</span>
-                    <span class="ticker-pct">{{ fmtPct(c.pct) }}</span>
+                    <span class="ticker-pct num">{{ fmtPct(c.pct) }}</span>
                   </div>
                 }
               </div>
@@ -215,15 +215,15 @@ interface HeatSector {
       box-shadow: var(--shadow-sm);
     }
     .card-head {
-      padding: 13px 16px;
-      font-family: var(--font-display);
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--ink);
+      padding: 9px 16px;
+      font-family: var(--font-ui);
+      font-size: 10.5px;
+      font-weight: 400;
+      color: var(--ink-3);
       background: var(--surface-2);
       border-bottom: 1px solid var(--line);
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
     }
     .card-body {
       display: flex;
@@ -233,23 +233,26 @@ interface HeatSector {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 13px 16px;
-      font-size: 15px;
-      font-weight: 600;
-      border-bottom: 1px solid var(--surface-3);
+      padding: 11px 16px 11px 13px;
+      border-bottom: 1px solid var(--line);
     }
     .ticker-row:last-child { border-bottom: none; }
+    /* Wash de familia + barra izquierda de 3px ("zona destacada", ver
+       ui-kit.md §5.4) — mismo tratamiento que .nm-prof en arbitrage.component.ts. */
+    .ticker-row.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
+    .ticker-row.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
     .ticker-sym {
       font-family: var(--font-ui);
-      font-weight: 700;
-      font-size: 15px;
+      font-weight: 600;
+      font-size: 13.5px;
+      color: var(--ink);
     }
     .ticker-pct {
-      font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums;
       font-weight: 700;
-      font-size: 15px;
+      font-size: 14px;
     }
+    .ticker-row.pos .ticker-pct { color: var(--pos-strong); }
+    .ticker-row.neg .ticker-pct { color: var(--neg-strong); }
 
     .sector {
       position: absolute;
