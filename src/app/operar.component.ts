@@ -28,7 +28,12 @@ import {
   TICKET_TIPO_PRECIO,
   TicketPlazo,
   TICKET_PLAZOS,
+  OperarInstrumento,
+  TenenciaRow,
+  TicketTipoOperacion,
+  INSTRUMENTO_CHIP_LABEL,
 } from './operar.types';
+import { SimulatedMovement, loadMovements, addMovement } from './operar-storage';
 
 // Tira de dólares — hardcodeada, sin proxy propio todavía.
 // TODO: wire a /Cotizaciones/MEP cuando haya proxy.
@@ -54,32 +59,42 @@ const FONDOS: FondoCard[] = [
   template: `
     <div class="operar">
       @if (subview() === 'home') {
-        <div class="op-search-wrap">
-          <input
-            class="op-search"
-            type="text"
-            placeholder="Buscar símbolo o descripción…"
-            [ngModel]="query()"
-            (ngModelChange)="query.set($event)"
-          />
-          @if (query().trim() && searchResults().length) {
-            <div class="op-search-results">
-              @for (r of searchResults(); track r.symbol) {
-                <button class="op-result" (click)="selectSymbol(r)">
-                  <span class="or-sym">{{ r.symbol }}</span>
-                  <span class="or-desc">{{ r.desc || '' }}</span>
-                  <span class="or-px num">{{ fmt(price(r)) }}</span>
-                  <span class="or-chip" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                    {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                  </span>
-                </button>
-              }
-            </div>
-          } @else if (query().trim()) {
-            <div class="op-search-results">
-              <div class="op-empty op-empty-inline">Sin resultados para «{{ query() }}».</div>
-            </div>
-          }
+        <div class="op-home-head">
+          <div class="op-search-wrap">
+            <input
+              class="op-search"
+              type="text"
+              placeholder="Buscar símbolo o descripción…"
+              [ngModel]="query()"
+              (ngModelChange)="query.set($event)"
+            />
+            @if (query().trim() && searchResults().length) {
+              <div class="op-search-results">
+                @for (r of searchResults(); track r.symbol) {
+                  <button class="op-result" (click)="selectSymbol(r)">
+                    <span class="or-sym">{{ r.symbol }}</span>
+                    <span class="or-desc">{{ r.desc || '' }}</span>
+                    <span class="or-px num">{{ fmt(price(r)) }}</span>
+                    <span class="or-chip" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                      {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                    </span>
+                  </button>
+                }
+              </div>
+            } @else if (query().trim()) {
+              <div class="op-search-results">
+                <div class="op-empty op-empty-inline">Sin resultados para «{{ query() }}».</div>
+              </div>
+            }
+          </div>
+
+          <button class="op-cartera-btn op-subtab on" type="button" (click)="goCartera()" title="Cartera" aria-label="Ver cartera">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            <span>Cartera</span>
+            @if (tenencias().length) {
+              <span class="op-cartera-badge">{{ tenencias().length }}</span>
+            }
+          </button>
         </div>
 
         <div class="op-pills">
@@ -326,7 +341,7 @@ const FONDOS: FondoCard[] = [
             <button class="op-back" (click)="goBackFromTicketForm()">← Volver</button>
             <div class="op-ficha-id">
               <span class="fh-sym">{{ selectedSymbol() }}</span>
-              <span class="fh-desc">Comprar</span>
+              <span class="fh-desc">{{ ticketTipo() === 'venta' ? 'Vender' : 'Comprar' }}</span>
             </div>
           </div>
 
@@ -385,7 +400,12 @@ const FONDOS: FondoCard[] = [
               </div>
 
               <div class="op-field">
-                <span class="of-lbl">Cantidad</span>
+                <div class="of-row">
+                  <span class="of-lbl">Cantidad</span>
+                  @if (ticketTipo() === 'venta') {
+                    <span class="of-hint">Disponible: {{ fmt(maxVendible(), 0) }}</span>
+                  }
+                </div>
                 <div class="op-stepper">
                   <input
                     class="op-step-input num"
@@ -394,7 +414,7 @@ const FONDOS: FondoCard[] = [
                     (ngModelChange)="setCantidad($event)"
                   />
                   <button class="op-step-btn" type="button" (click)="decCantidad()" [disabled]="ticketState().cantidad <= 0">−</button>
-                  <button class="op-step-btn" type="button" (click)="incCantidad()">+</button>
+                  <button class="op-step-btn" type="button" (click)="incCantidad()" [disabled]="ticketState().cantidad >= maxVendible()">+</button>
                 </div>
               </div>
 
@@ -439,7 +459,7 @@ const FONDOS: FondoCard[] = [
               </div>
               <div class="op-summary-row">
                 <span class="orr-lbl">Operación</span>
-                <span class="orr-right"><span class="orr-val">Comprar</span></span>
+                <span class="orr-right"><span class="orr-val">{{ ticketTipo() === 'venta' ? 'Vender' : 'Comprar' }}</span></span>
               </div>
               <div class="op-summary-row">
                 <span class="orr-lbl">Precio</span>
@@ -486,14 +506,219 @@ const FONDOS: FondoCard[] = [
           </label>
 
           @if (ticketBannerShown()) {
-            <div class="op-ticket-banner">
-              La operatoria de IOL todavía no está habilitada para esta cuenta. Esta operación no fue enviada.
+            <div class="op-warn-banner">
+              <p>La operatoria de IOL todavía no está habilitada para esta cuenta. Esta operación no fue enviada.</p>
+              <button class="op-warn-banner-link" type="button" (click)="goCarteraFromTicket()">Ver en Cartera →</button>
             </div>
           }
 
           <button class="op-buy-sticky" type="button" [disabled]="!ticketAccepted()" (click)="confirmarOperacion()">
             Confirmar operación
           </button>
+        }
+      } @else if (subview() === 'cartera') {
+        <div class="op-panel-head">
+          <button class="op-back" (click)="goHome()">← Volver</button>
+          <h2 class="op-panel-title">Cartera</h2>
+        </div>
+
+        <div class="op-warn-banner">
+          <p>DATOS SIMULADOS — no representa operaciones reales ni información de tu cuenta en IOL.</p>
+        </div>
+
+        @if (tenencias().length) {
+          <div class="op-card">
+            <div class="op-dolares-row">
+              <div class="op-dollar-item">
+                <span class="od-lbl">Total invertido</span>
+                <span class="op-resumen-val num">$ {{ fmt(resumenCartera().totalInvertido) }}</span>
+              </div>
+              <div class="op-dollar-item">
+                <span class="od-lbl">Ganancia / Pérdida total</span>
+                <div class="op-resumen-prof" [class.pos]="resumenCartera().gananciaTotal >= 0" [class.neg]="resumenCartera().gananciaTotal < 0">
+                  <span class="rp-val num">
+                    {{ resumenCartera().gananciaTotal >= 0 ? '+' : '' }}$ {{ fmt(resumenCartera().gananciaTotal) }}
+                  </span>
+                </div>
+              </div>
+              <div class="op-dollar-item">
+                <span class="od-lbl">Variación de hoy</span>
+                <span class="op-resumen-val num" [class.pos]="resumenCartera().variacionHoy >= 0" [class.neg]="resumenCartera().variacionHoy < 0">
+                  {{ resumenCartera().variacionHoy >= 0 ? '+' : '' }}$ {{ fmt(resumenCartera().variacionHoy) }}
+                </span>
+                <span class="op-resumen-pct">
+                  ({{ resumenCartera().variacionHoyPct >= 0 ? '+' : '' }}{{ fmt(resumenCartera().variacionHoyPct) }}%) hoy
+                </span>
+              </div>
+            </div>
+          </div>
+        }
+
+        <div class="op-subtabs">
+          <button class="op-subtab" type="button" [class.on]="carteraTab() === 'tenencias'" (click)="carteraTab.set('tenencias')">Tenencias</button>
+          <button class="op-subtab" type="button" [class.on]="carteraTab() === 'movimientos'" (click)="carteraTab.set('movimientos')">Movimientos</button>
+        </div>
+
+        @if (carteraTab() === 'tenencias') {
+          @if (tenencias().length) {
+            <div class="op-table-wrap op-cartera-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Símbolo</th>
+                    <th class="num">Cantidad</th>
+                    <th class="num">Precio prom.</th>
+                    <th class="num">Valor actual</th>
+                    <th class="num">P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (t of tenencias(); track t.symbol) {
+                    <tr (click)="toggleTenenciaExpandida(t.symbol)">
+                      <td>
+                        <span class="opt-sym">{{ t.symbol }}</span>
+                        <span class="ori-chip">{{ instrumentoLabel[t.instrumento] }}</span>
+                        @if (t.estimado) { <span class="ori-chip warn">estimado</span> }
+                      </td>
+                      <td class="num">{{ fmt(t.cantidad, 0) }}</td>
+                      <td class="num">{{ fmt(t.precioPromedio) }}</td>
+                      <td class="num">{{ fmt(t.valorActual) }}</td>
+                      <td class="num" [class.pos]="t.pnl >= 0" [class.neg]="t.pnl < 0">
+                        {{ t.pnl >= 0 ? '+' : '' }}{{ fmt(t.pnl) }}
+                      </td>
+                    </tr>
+                    @if (tenenciaExpandida() === t.symbol) {
+                      <tr class="op-tenencia-actions-row">
+                        <td colspan="5">
+                          <div class="op-subtabs">
+                            <button class="op-subtab on" type="button" (click)="comprarMasDesdeCartera(t.symbol)">Comprar más</button>
+                            <button class="op-subtab sell" type="button" (click)="venderDesdeCartera(t.symbol)">Vender</button>
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <div class="op-mobile-cards">
+              @for (t of tenencias(); track t.symbol) {
+                <div class="op-card" (click)="toggleTenenciaExpandida(t.symbol)">
+                  <div class="of-row">
+                    <span>
+                      <span class="opt-sym">{{ t.symbol }}</span>
+                      <span class="ori-chip">{{ instrumentoLabel[t.instrumento] }}</span>
+                      @if (t.estimado) { <span class="ori-chip warn">estimado</span> }
+                    </span>
+                    <span class="num">{{ fmt(t.cantidad, 0) }}</span>
+                  </div>
+                  <div class="op-dolares-row">
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Precio prom.</span>
+                      <span class="od-val num">{{ fmt(t.precioPromedio) }}</span>
+                    </div>
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Valor actual</span>
+                      <span class="od-val num">{{ fmt(t.valorActual) }}</span>
+                    </div>
+                  </div>
+                  <div class="op-resumen-prof" [class.pos]="t.pnl >= 0" [class.neg]="t.pnl < 0">
+                    <span class="rp-val num">{{ t.pnl >= 0 ? '+' : '' }}{{ fmt(t.pnl) }}</span>
+                  </div>
+                  @if (tenenciaExpandida() === t.symbol) {
+                    <div class="op-subtabs">
+                      <button class="op-subtab on" type="button" (click)="comprarMasDesdeCartera(t.symbol)">Comprar más</button>
+                      <button class="op-subtab sell" type="button" (click)="venderDesdeCartera(t.symbol)">Vender</button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="op-empty">
+              Todavía no tenés compras simuladas.
+              <button class="op-empty-cta" type="button" (click)="goHome()">Elegí un símbolo para comprar</button>
+            </div>
+          }
+        } @else {
+          @if (movimientosOrdenados().length) {
+            <div class="op-table-wrap op-cartera-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Símbolo</th>
+                    <th class="num">Cantidad</th>
+                    <th class="num">Precio</th>
+                    <th class="num">Monto</th>
+                    <th>Plazo</th>
+                    <th>Liquidación est.</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (m of movimientosOrdenados(); track m.id) {
+                    <tr [class.op-buy]="m.tipo === 'compra'" [class.op-sell]="m.tipo === 'venta'">
+                      <td>{{ m.tipo === 'compra' ? 'Compra' : 'Venta' }}</td>
+                      <td>
+                        <span class="opt-sym">{{ m.symbol }}</span>
+                        <span class="ori-chip">{{ instrumentoLabel[m.instrumento] }}</span>
+                      </td>
+                      <td class="num">{{ fmt(m.cantidad, 0) }}</td>
+                      <td class="num">{{ fmt(m.precio) }}</td>
+                      <td class="num">{{ fmt(m.monto) }}</td>
+                      <td>{{ plazoLabel(m.plazo) }}</td>
+                      <td>{{ m.fechaLiquidacionEstimada }}</td>
+                      <td>
+                        <span class="ori-chip" [class.warn]="m.estado === 'simulada_pendiente'" [class.pos]="m.estado === 'simulada_liquidada'">
+                          {{ m.estado === 'simulada_pendiente' ? 'Pendiente' : 'Liquidada' }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <div class="op-mobile-cards">
+              @for (m of movimientosOrdenados(); track m.id) {
+                <div class="op-card">
+                  <div class="of-row">
+                    <span>
+                      <span class="opt-sym">{{ m.symbol }}</span>
+                      <span class="ori-chip" [class.accent]="m.tipo === 'compra'" [class.warn]="m.tipo === 'venta'">
+                        {{ m.tipo === 'compra' ? 'Compra' : 'Venta' }}
+                      </span>
+                    </span>
+                    <span class="of-hint">{{ relativeTime(m.timestamp) }}</span>
+                  </div>
+                  <div class="op-dolares-row">
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Cantidad</span>
+                      <span class="od-val num">{{ fmt(m.cantidad, 0) }}</span>
+                    </div>
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Precio</span>
+                      <span class="od-val num">{{ fmt(m.precio) }}</span>
+                    </div>
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Monto</span>
+                      <span class="od-val num">{{ fmt(m.monto) }}</span>
+                    </div>
+                  </div>
+                  <span class="ori-chip" [class.warn]="m.estado === 'simulada_pendiente'" [class.pos]="m.estado === 'simulada_liquidada'">
+                    {{ m.estado === 'simulada_pendiente' ? 'Pendiente' : 'Liquidada' }}
+                  </span>
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="op-empty">
+              Todavía no tenés movimientos simulados.
+              <button class="op-empty-cta" type="button" (click)="goHome()">Elegí un símbolo para comprar</button>
+            </div>
+          }
         }
       }
     </div>
@@ -576,6 +801,21 @@ const FONDOS: FondoCard[] = [
     .op-dollar-item:last-child { border-right: 0; padding-right: 0; }
     .od-lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); }
     .od-val { font-size: 16px; font-weight: 600; color: var(--ink); }
+
+    .op-resumen-val, .op-resumen-prof .rp-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--ink); }
+    .op-resumen-val.pos, .op-resumen-prof.pos .rp-val { color: var(--pos-strong); }
+    .op-resumen-val.neg, .op-resumen-prof.neg .rp-val { color: var(--neg-strong); }
+    .op-resumen-pct { font-size: 12.5px; color: var(--ink-3); }
+    .op-resumen-prof { display: inline-block; padding: 4px 10px; border-radius: var(--r); }
+    .op-resumen-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
+    .op-resumen-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
+
+    .op-subtab.sell { border-color: var(--warn-line); color: var(--warn-strong); background: var(--warn-bg); }
+    .ori-chip.accent { background: var(--accent-sf); border-color: var(--accent); color: var(--accent-2); }
+
+    /* Tenencias/Movimientos en mobile: cards en vez de tabla (ver .op-cartera-table
+       más abajo), mismo patrón que .mobile-cards/.sector-card de cedears-heatmap.component.ts. */
+    .op-mobile-cards { display: none; flex-direction: column; gap: 10px; }
 
     /* Referencia — una card, filas apiladas (lista), no grilla. Bleed horizontal
        a los bordes de la card (mismo padding que .op-card, en negativo) para que
@@ -680,6 +920,8 @@ const FONDOS: FondoCard[] = [
     .op-table-wrap td.num.neg { color: var(--neg); font-weight: 600; }
     .opt-sym { font-family: var(--font-mono); font-weight: 600; }
     .opt-desc { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); font-family: var(--font-ui); }
+    tr.op-buy td { background: var(--accent-sf); }
+    tr.op-sell td { background: var(--warn-bg); }
 
     /* Ficha — header + precio protagonista */
     .op-ficha-head { display: flex; align-items: center; gap: 12px; }
@@ -832,24 +1074,39 @@ const FONDOS: FondoCard[] = [
     .op-checkbox:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-sf); }
     .op-checkbox-row span { font-size: 13px; color: var(--ink-2); line-height: 1.4; }
 
-    /* Ticket — banner de "operatoria no habilitada", familia warn (mismo
-       espíritu que .freeze-bar/.ci-note: wash + barra de acento a la izquierda). */
-    .op-ticket-banner {
+    /* Banner familia warn: Ticket ("no habilitada") y Cartera ("simulados"). */
+    .op-warn-banner {
       padding: 12px 16px; border: 1px solid var(--warn-line); border-left: 3px solid var(--warn);
       background: var(--warn-bg); border-radius: var(--r); color: var(--warn);
       font-size: 12.5px; line-height: 1.5;
     }
-
-    /* Placeholders (Panel/Ficha/Ticket) */
-    .op-back {
-      align-self: flex-start; height: 32px; padding: 0 12px; margin-bottom: 4px;
-      border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
-      color: var(--ink-2); font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; cursor: pointer;
-      transition: border-color .12s, transform .04s;
+    .op-warn-banner p { margin: 0 0 8px; }
+    .op-warn-banner-link {
+      border: 0; background: transparent; padding: 0; margin: 0;
+      font-family: var(--font-ui); font-size: 12.5px; font-weight: 700; color: var(--warn);
+      cursor: pointer; text-decoration: underline;
     }
-    .op-back:hover { border-color: var(--line-2); }
+
+    .op-home-head { display: flex; align-items: flex-start; gap: 10px; }
+    .op-home-head .op-search-wrap { flex: 1; }
+    .op-cartera-btn { flex-shrink: 0; position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; }
+    .op-cartera-badge {
+      position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
+      background: var(--pos); color: var(--surface); font-size: 10px; font-weight: 700;
+      line-height: 16px; text-align: center; border-radius: 99px;
+    }
+
+    .op-back, .op-empty-cta {
+      height: 32px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+      color: var(--ink-2); font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; cursor: pointer;
+      transition: border-color .12s;
+    }
+    .op-back { align-self: flex-start; padding: 0 12px; margin-bottom: 4px; }
+    .op-back:hover, .op-empty-cta:hover { border-color: var(--line-2); }
     .op-back:active { transform: translateY(1px); }
+    .op-empty-cta { margin-top: 10px; padding: 0 14px; }
     .op-empty {
+      display: flex; flex-direction: column; align-items: center;
       padding: 40px 20px; color: var(--ink-3); font-size: 13px; text-align: center;
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
     }
@@ -865,6 +1122,8 @@ const FONDOS: FondoCard[] = [
       .or-desc { display: none; }
       .op-panel-toolbar { gap: 10px; }
       .opt-desc { display: none; }
+      .op-cartera-table { display: none; }
+      .op-mobile-cards { display: flex; }
     }
   `],
 })
@@ -912,6 +1171,18 @@ export class OperarComponent implements OnInit {
   ticketState = signal<TicketState>(this.defaultTicketState());
   ticketAccepted = signal(false);
   ticketBannerShown = signal(false);
+  // Compra o venta (ver openTicket) y subvista desde la que se abrió el
+  // Ticket, para saber a dónde volver con "← Volver" (goBackFromTicketForm).
+  ticketTipo = signal<TicketTipoOperacion>('compra');
+  ticketOrigin = signal<'ficha' | 'cartera'>('ficha');
+
+  // Estado propio de la subvista Cartera — simulación en localStorage, ver
+  // operar-storage.ts y operar.types.ts §Cartera simulada.
+  carteraTab = signal<'tenencias' | 'movimientos'>('tenencias');
+  simulatedMovements = signal<SimulatedMovement[]>(loadMovements());
+  // Symbol de Tenencias con las acciones "Comprar más"/"Vender" desplegadas.
+  tenenciaExpandida = signal<string | null>(null);
+  instrumentoLabel = INSTRUMENTO_CHIP_LABEL;
 
   private homeLoaded = false;
   // Ids ya fetcheados en esta sesión del componente (letras/ons son lazy;
@@ -1032,12 +1303,81 @@ export class OperarComponent implements OnInit {
   // fetcheados (Home + Panel) — sin refetch, dato real que ya tenemos en memoria.
   selectedRow = computed<PanelRow | null>(() => {
     const sym = this.selectedSymbol();
-    if (!sym) return null;
-    const all: PanelRow[] = [
-      ...this.accionesRows(), ...this.cedearsRows(), ...this.bonosRows(),
-      ...this.letrasRows(), ...this.onsRows(), ...this.usaRows(),
-    ];
-    return all.find((r) => r.symbol === sym) ?? null;
+    return sym ? this.findCachedRow(sym) : null;
+  });
+
+  // Tenencias de Cartera: posición NETA por symbol (compras - ventas),
+  // valuada contra el precio REAL cacheado (nunca el simulado) — fallback al
+  // costo promedio con badge "estimado" si el símbolo no está en ningún
+  // panel. costoPromedio es el costo ponderado de TODAS las compras
+  // históricas (no se recalcula al vender, método estándar de costo
+  // promedio); si la cantidad neta llega a 0 el symbol desaparece (sigue en
+  // Movimientos, ver movimientosOrdenados).
+  tenencias = computed<TenenciaRow[]>(() => {
+    const bySymbol = new Map<string, SimulatedMovement[]>();
+    for (const m of this.simulatedMovements()) {
+      const list = bySymbol.get(m.symbol) ?? [];
+      list.push(m);
+      bySymbol.set(m.symbol, list);
+    }
+    const rows: TenenciaRow[] = [];
+    for (const [symbol, movs] of bySymbol) {
+      const compras = movs.filter((m) => m.tipo === 'compra');
+      const cantidadCompras = compras.reduce((s, m) => s + m.cantidad, 0);
+      const cantidadVentas = movs.filter((m) => m.tipo === 'venta').reduce((s, m) => s + m.cantidad, 0);
+      const cantidadNeta = cantidadCompras - cantidadVentas;
+      if (cantidadNeta <= 0) continue;
+      const costoPromedio = cantidadCompras > 0 ? compras.reduce((s, m) => s + m.monto, 0) / cantidadCompras : 0;
+      const row = this.findCachedRow(symbol);
+      const precioActual = row ? this.price(row) : costoPromedio;
+      rows.push({
+        symbol,
+        instrumento: movs[0].instrumento,
+        cantidad: cantidadNeta,
+        precioPromedio: costoPromedio,
+        valorActual: cantidadNeta * precioActual,
+        pnl: cantidadNeta * precioActual - costoPromedio * cantidadNeta,
+        estimado: !row,
+      });
+    }
+    return rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  });
+
+  // Tope duro de Vender: cantidad neta actual en Tenencias del symbol del
+  // Ticket. Infinity fuera de modo venta, para no ramificar el clamp en
+  // setCantidad/incCantidad.
+  maxVendible = computed<number>(() => {
+    if (this.ticketTipo() !== 'venta') return Infinity;
+    const symbol = this.selectedSymbol();
+    if (!symbol) return 0;
+    return this.tenencias().find((t) => t.symbol === symbol)?.cantidad ?? 0;
+  });
+
+  // Movimientos de Cartera, más reciente primero.
+  movimientosOrdenados = computed<SimulatedMovement[]>(() =>
+    [...this.simulatedMovements()].sort((a, b) => b.timestamp - a.timestamp)
+  );
+
+  // Header resumen de Cartera (3 números protagonistas, ver template). Total
+  // invertido = costo de la posición NETA actual (costoPromedio × cantidad de
+  // cada tenencia), no el bruto histórico de compras — una venta reduce este
+  // número. Ganancia total = mismo cálculo que Tenencias (valor actual real -
+  // costo de la posición). Variación de hoy = pct_change diario de cada panel
+  // cacheado aplicado al valor actual de cada tenencia y sumado (0 para
+  // símbolos "estimado", que no tienen pct_change real).
+  resumenCartera = computed<{ totalInvertido: number; gananciaTotal: number; variacionHoy: number; variacionHoyPct: number }>(() => {
+    const tenenciasList = this.tenencias();
+    const totalInvertido = tenenciasList.reduce((s, t) => s + t.precioPromedio * t.cantidad, 0);
+    const gananciaTotal = tenenciasList.reduce((s, t) => s + t.pnl, 0);
+    let variacionHoy = 0;
+    for (const t of tenenciasList) {
+      const row = this.findCachedRow(t.symbol);
+      if (row) variacionHoy += t.valorActual * ((row.pct_change || 0) / 100);
+    }
+    const valorActualTotal = tenenciasList.reduce((s, t) => s + t.valorActual, 0);
+    const valorAyerTotal = valorActualTotal - variacionHoy;
+    const variacionHoyPct = valorAyerTotal > 0 ? (variacionHoy / valorAyerTotal) * 100 : 0;
+    return { totalInvertido, gananciaTotal, variacionHoy, variacionHoyPct };
   });
 
   chartIsPos = computed<boolean>(() => {
@@ -1068,13 +1408,14 @@ export class OperarComponent implements OnInit {
   });
 
   // Precio efectivo del Paso 1: precio límite si el usuario eligió esa
-  // modalidad, si no el precio de VENTA del libro (columna Venta, px_ask —
-  // es lo que se paga al comprar, no px_bid que es la oferta de otros) con
-  // el fallback de último cierre si el libro está vacío (ver bookAskPx).
+  // modalidad; si no, el lado del libro que corresponde según la dirección:
+  // comprar paga la punta Venta (px_ask), vender cobra la punta Compra
+  // (px_bid) — con el fallback de último cierre si el libro está vacío (ver
+  // bookAskPx/bookBidPx).
   precioEfectivo = computed<number>(() => {
     const s = this.ticketState();
     if (s.tipoPrecio === 'limite') return s.precioLimite ?? 0;
-    return this.bookAskPx(this.selectedRow());
+    return this.ticketTipo() === 'venta' ? this.bookBidPx(this.selectedRow()) : this.bookAskPx(this.selectedRow());
   });
 
   // El monto tipeado no alcanza para 1 nominal entero al precio efectivo:
@@ -1124,6 +1465,32 @@ export class OperarComponent implements OnInit {
     const px = +(row as any)?.px_bid;
     if (px > 0) return px;
     return +(row as any)?.c || 0;
+  }
+
+  // Busca un symbol en TODOS los paneles ya fetcheados (Home + Panel + Ficha
+  // US$) — sin refetch, dato real que ya tenemos en memoria. Usado por Ficha
+  // (selectedRow) y por Tenencias de Cartera para valuar al precio actual.
+  private findCachedRow(symbol: string): PanelRow | null {
+    const all: PanelRow[] = [
+      ...this.accionesRows(), ...this.cedearsRows(), ...this.bonosRows(),
+      ...this.letrasRows(), ...this.onsRows(), ...this.usaRows(),
+    ];
+    return all.find((r) => r.symbol === symbol) ?? null;
+  }
+
+  // Instrumento del symbol para un SimulatedMovement: usa el instrumento de
+  // Panel si el Ticket se abrió navegando por una pill; si vino de la
+  // búsqueda de Home (selectedInstrumentId sin setear) lo infiere buscando en
+  // qué panel cacheado está el símbolo, con 'acciones' de última instancia.
+  private inferInstrumento(symbol: string): OperarInstrumento {
+    const id = this.selectedInstrumentId();
+    if (id) return id;
+    if (this.accionesRows().some((r) => r.symbol === symbol)) return 'acciones';
+    if (this.cedearsRows().some((r) => r.symbol === symbol)) return 'cedears';
+    if (this.bonosRows().some((r) => r.symbol === symbol)) return 'bonos';
+    if (this.letrasRows().some((r) => r.symbol === symbol)) return 'letras';
+    if (this.onsRows().some((r) => r.symbol === symbol)) return 'ons';
+    return 'acciones';
   }
 
   // Libro sin puntas activas (mercado cerrado). Se usa para mostrar el
@@ -1247,6 +1614,25 @@ export class OperarComponent implements OnInit {
   }
 
   goTicket() {
+    const symbol = this.selectedSymbol();
+    if (!symbol) return;
+    this.openTicket('compra', symbol, 'ficha');
+  }
+
+  // Desde Tenencias de Cartera (ver toggleTenenciaExpandida): abre el mismo
+  // Ticket sin pasar por Ficha, tipo='compra'/'venta' según la acción.
+  comprarMasDesdeCartera(symbol: string) {
+    this.openTicket('compra', symbol, 'cartera');
+  }
+
+  venderDesdeCartera(symbol: string) {
+    this.openTicket('venta', symbol, 'cartera');
+  }
+
+  private openTicket(tipo: TicketTipoOperacion, symbol: string, origin: 'ficha' | 'cartera') {
+    this.selectedSymbol.set(symbol);
+    this.ticketTipo.set(tipo);
+    this.ticketOrigin.set(origin);
     this.ticketStep.set('form');
     this.ticketState.set(this.defaultTicketState());
     this.ticketAccepted.set(false);
@@ -1254,8 +1640,14 @@ export class OperarComponent implements OnInit {
     this.subview.set('ticket');
   }
 
+  // Vuelve a donde se abrió el Ticket (ver openTicket): Ficha si vino del
+  // botón "Comprar" de una ficha, Cartera si vino de Tenencias.
   goBackFromTicketForm() {
-    this.subview.set('ficha');
+    this.subview.set(this.ticketOrigin() === 'cartera' ? 'cartera' : 'ficha');
+  }
+
+  toggleTenenciaExpandida(symbol: string) {
+    this.tenenciaExpandida.set(this.tenenciaExpandida() === symbol ? null : symbol);
   }
 
   setTipoPrecio(t: TicketTipoPrecio) {
@@ -1273,11 +1665,13 @@ export class OperarComponent implements OnInit {
   }
 
   // Cantidad es el campo primario: cada cambio recalcula Monto = cantidad ×
-  // precioEfectivo (columna Venta o límite, ver precioEfectivo()).
+  // precioEfectivo (columna Venta o límite, ver precioEfectivo()). En modo
+  // venta, tope duro = maxVendible() — no se puede cargar más de lo que hay
+  // en Tenencias (ver [disabled] del botón + / hint "Disponible" en template).
   incCantidad() {
     const px = this.precioEfectivo();
     this.ticketState.update((s) => {
-      const cantidad = s.cantidad + 1;
+      const cantidad = Math.min(this.maxVendible(), s.cantidad + 1);
       return { ...s, cantidad, monto: px > 0 ? cantidad * px : s.monto };
     });
   }
@@ -1291,7 +1685,7 @@ export class OperarComponent implements OnInit {
   }
 
   setCantidad(v: number) {
-    const cantidad = Math.max(0, Math.floor(+v) || 0);
+    const cantidad = Math.min(this.maxVendible(), Math.max(0, Math.floor(+v) || 0));
     const px = this.precioEfectivo();
     this.ticketState.update((s) => ({ ...s, cantidad, monto: px > 0 ? cantidad * px : s.monto }));
   }
@@ -1329,6 +1723,16 @@ export class OperarComponent implements OnInit {
     return this.plazoOpts.find((p) => p.id === id)?.label ?? id;
   }
 
+  // Fecha/hora relativa de un movimiento (tarjeta mobile de Movimientos).
+  relativeTime(ts: number): string {
+    const min = Math.floor((Date.now() - ts) / 60000);
+    if (min < 1) return 'ahora';
+    if (min < 60) return `hace ${min} min`;
+    const hs = Math.floor(min / 60);
+    if (hs < 24) return `hace ${hs} h`;
+    return `hace ${Math.floor(hs / 24)} d`;
+  }
+
   // "Revisar orden" — deshabilitado con cantidad=0 (ver [disabled] en el template).
   goTicketConfirmar() {
     if (this.ticketState().cantidad <= 0) return;
@@ -1340,14 +1744,42 @@ export class OperarComponent implements OnInit {
     this.ticketStep.set('form');
   }
 
-  // Sin operatoria habilitada: cero request, sólo banner informativo.
+  // Sin operatoria habilitada: cero request a IOL, sólo banner informativo.
+  // Elio pidió que ADEMÁS quede una simulación completa (compra + cartera +
+  // movimientos) en paralelo, para mostrar cómo se vería el producto
+  // terminado — no reemplaza el banner de "no habilitado", lo complementa.
   confirmarOperacion() {
     if (!this.ticketAccepted()) return;
+    const symbol = this.selectedSymbol();
+    if (symbol) {
+      addMovement({
+        symbol,
+        instrumento: this.inferInstrumento(symbol),
+        tipo: this.ticketTipo(),
+        cantidad: this.ticketState().cantidad,
+        precio: this.precioEfectivo(),
+        monto: this.montoEstimado(),
+        plazo: this.ticketState().plazo,
+      });
+      this.simulatedMovements.set(loadMovements());
+    }
     this.ticketBannerShown.set(true);
   }
 
   goHome() {
     this.subview.set('home');
+  }
+
+  goCartera() {
+    this.simulatedMovements.set(loadMovements());
+    this.subview.set('cartera');
+  }
+
+  // Desde el link "Ver en Cartera" del banner de confirmación: arranca en
+  // Movimientos para que el registro recién creado se vea de entrada.
+  goCarteraFromTicket() {
+    this.carteraTab.set('movimientos');
+    this.goCartera();
   }
 
   // TODO etapa siguiente: navegar a Ficha con el instrumento de la fila (AL30/Caución/Plazo fijo).

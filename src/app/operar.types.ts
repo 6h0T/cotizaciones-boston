@@ -10,8 +10,10 @@ export interface PanelRow extends CedearRow {
   desc?: string;
 }
 
-// Subvistas de Operar. Sólo 'home' se desarrolla en esta etapa.
-export type OperarSubview = 'home' | 'panel' | 'ficha' | 'ticket';
+// Subvistas de Operar. 'cartera' es la simulación de compra + tenencias +
+// movimientos (ver operar-storage.ts) — vive dentro de esta misma pestaña,
+// nunca como tab nueva del shell (pedido explícito de Elio).
+export type OperarSubview = 'home' | 'panel' | 'ficha' | 'ticket' | 'cartera';
 
 // Ids de instrumento de las pills del Home. Mismos ids que /api/iol/panel?id=…
 // salvo 'cedears': ese panel no soporta el instrumento CEDEARs (no está en el
@@ -158,4 +160,47 @@ export interface TicketState {
   plazo: TicketPlazo;
   cantidad: number;
   monto: number | null;
+}
+
+// ── Cartera simulada ─────────────────────────────────────────────────────
+// Al confirmar en el Ticket (que sigue sin mandar nada a IOL, ver arriba) se
+// registra ADEMÁS un SimulatedMovement en localStorage (operar-storage.ts)
+// para poder mostrar cómo se vería el producto terminado. Cartera/Movimientos
+// son subvistas de Operar, no tabs nuevas — ver OperarSubview.
+
+// Mismo dominio que InstrumentId (pills del Home): categoriza el instrumento
+// de un movimiento simulado.
+export type OperarInstrumento = InstrumentId;
+
+// Label corto del instrumento para el chip de identidad de Tenencias/
+// Movimientos — extiende INSTRUMENT_PILLS (Home) con singulares para uso
+// inline junto al symbol. Tokens neutros (ver .op-instr-chip): un chip de
+// identidad no usa color con significado.
+export const INSTRUMENTO_CHIP_LABEL: Record<OperarInstrumento, string> = {
+  acciones: 'Acción',
+  cedears: 'Cedear',
+  bonos: 'Bono',
+  letras: 'Letra',
+  ons: 'ON',
+};
+
+// Compra o venta — dirección de un movimiento simulado y del Ticket que lo
+// genera (ver TicketState / operar.component.ts).
+export type TicketTipoOperacion = 'compra' | 'venta';
+
+// Fila agregada de Tenencias (Cartera): posición NETA de un symbol (compras -
+// ventas). `cantidad` es la cantidad neta; `precioPromedio` es el costo
+// promedio ponderado de TODAS las compras históricas (no se recalcula al
+// vender, método estándar de costo promedio). Si la cantidad neta llega a 0
+// el symbol desaparece de Tenencias (sigue en Movimientos). `estimado` cuando
+// no hay precio real cacheado de ningún panel y se usa el costo promedio
+// como fallback (ver operar.component.ts).
+export interface TenenciaRow {
+  symbol: string;
+  instrumento: OperarInstrumento;
+  cantidad: number;
+  precioPromedio: number;
+  valorActual: number;
+  pnl: number;
+  estimado: boolean;
 }
