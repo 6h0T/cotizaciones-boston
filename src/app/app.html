@@ -6,6 +6,7 @@
   <nav class="nav">
     <!-- Nav de primer nivel: Arbitraje / Cotizaciones -->
     <div class="seg">
+      <button class="seg-btn" [class.on]="view() === 'operaciones'" (click)="setView('operaciones')">Operar</button>
       <button class="seg-btn" [class.on]="view() === 'arbitraje'" (click)="setView('arbitraje')">Arbitraje</button>
       <button class="seg-btn" [class.on]="view() === 'cotizaciones'" (click)="setView('cotizaciones')">Cotizaciones</button>
     </div>
@@ -177,6 +178,8 @@
       (pausedChange)="paused.set($event)"
       [marketClosed]="marketClosedAutoPause()"
     />
+  } @else if (view() === 'operaciones') {
+    <app-operar />
   } @else if (detailPanel() === 'mapa-cedears') {
     @if (errors()['cedears']) {
       <div class="error-box">No se pudo cargar: {{ errors()['cedears'] }}</div>

@@ -646,6 +646,24 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
     }
 
+    @media (max-width: 480px) {
+      .arb-head { flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .badge { height: 22px; padding: 0 7px; font-size: 10px; }
+      .monto { width: 100%; }
+      .monto input,
+      .monto.comm input,
+      .monto.vol input,
+      .monto.ci input { width: 100%; }
+      .pair-count { margin-left: 0; text-align: left; }
+      .freeze-btn { align-self: stretch; justify-content: center; }
+      .nm-head { flex-direction: column; gap: 6px; }
+      .nm-sub { min-width: 0; font-size: 10px; }
+      .nm-foot { flex-direction: column; align-items: stretch; }
+      .nm-prof { align-items: stretch; text-align: center; }
+      .nm-prof .nm-pmain { justify-content: center; }
+      .grid { grid-template-columns: 1fr; }
+    }
+
   `],
 })
 export class ArbitrageComponent {

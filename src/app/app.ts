@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
+import { OperarComponent } from './operar.component';
 import {
   ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, cohenCedearsUrl, iolCedearsUrl,
   bondType, noteType, INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
@@ -109,12 +110,12 @@ const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
 type CedearsSrc = 'cohen' | 'iol' | null;
 
 // Vista de primer nivel del navbar.
-type View = 'arbitraje' | 'cotizaciones';
+type View = 'arbitraje' | 'cotizaciones' | 'operaciones';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
+  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent, OperarComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -127,7 +128,7 @@ export class App implements OnInit, OnDestroy {
 
   // Nav de primer nivel (Arbitraje / Cotizaciones) y, dentro de Cotizaciones,
   // el casillero de detalle abierto ("Ver todo"); null = mosaico.
-  view = signal<View>('arbitraje');
+  view = signal<View>('operaciones');
   detailPanel = signal<string | null>(null);
   // Wrapper para pasar panelStatus como input a <app-cotizaciones>.
   statusFn = (id: string) => this.panelStatus(id);
