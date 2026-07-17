@@ -1,0 +1,10 @@
+page.goto: Timeout 30000ms exceeded.
+Call log:
+[2m  - navigating to "http://localhost:4210/", waiting until "networkidle"[22m
+
+    at main (D:\BOSTON ASSET MANAGER\cotizaciones-boston\pw-verify.mjs:40:16) {
+  log: [
+    '  - navigating to "http://localhost:4210/", waiting until "networkidle"'
+  ],
+  name: 'TimeoutError'
+}

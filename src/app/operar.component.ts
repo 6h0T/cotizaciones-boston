@@ -59,6 +59,115 @@ const FONDOS: FondoCard[] = [
   template: `
     <div class="operar">
       @if (subview() === 'home') {
+        <!-- Acciones: primer contenedor de Home, lista COMPLETA (sin recorte
+             Líder/General) con datos reales de accionesRows() — misma fuente
+             que consume Panel para id==='acciones' (ver loadHome/panelRawRows).
+             Repartida en 2 columnas, mismo mecanismo de grilla que
+             cotizaciones.component.ts (.mosaic), colapsa a 1 columna en
+             mobile ≤760px como el resto de la app.
+
+             PREGUNTA ABIERTA (sin resolver acá, ver PROMPT 2): con esta
+             sección arriba de todo, no está claro qué debería pasar con el
+             buscador + pills de instrumento de más abajo — ¿el buscador
+             debería filtrar esta tabla en vez de abrir un dropdown de
+             resultados? ¿la pill "Acciones" queda redundante al ya estar
+             todo listado acá? Se dejaron intactos, en su posición original,
+             hasta que se defina con producto. -->
+        <div class="op-card op-acciones">
+          <h3>Acciones</h3>
+          @if (accionesAll().length) {
+            <div class="op-acciones-grid">
+              <div class="op-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Símbolo</th>
+                      <th class="num">Precio</th>
+                      <th class="num">Variación</th>
+                      <th class="op-th-accion"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of accionesColLeft(); track r.symbol) {
+                      <tr (click)="selectSymbol(r)">
+                        <td>
+                          <span class="opt-sym">{{ r.symbol }}</span>
+                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                        </td>
+                        <td class="num">{{ fmt(price(r)) }}</td>
+                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                        </td>
+                        <td class="op-td-accion">
+                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                            Comprar
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <div class="op-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Símbolo</th>
+                      <th class="num">Precio</th>
+                      <th class="num">Variación</th>
+                      <th class="op-th-accion"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of accionesColRight(); track r.symbol) {
+                      <tr (click)="selectSymbol(r)">
+                        <td>
+                          <span class="opt-sym">{{ r.symbol }}</span>
+                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                        </td>
+                        <td class="num">{{ fmt(price(r)) }}</td>
+                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                        </td>
+                        <td class="op-td-accion">
+                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                            Comprar
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="op-acciones-cards">
+              @for (r of accionesPreviewMobile(); track r.symbol) {
+                <div class="op-acc-card" (click)="selectSymbol(r)">
+                  <div class="op-acc-id">
+                    <span class="opt-sym">{{ r.symbol }}</span>
+                    @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                  </div>
+                  <div class="op-acc-row">
+                    <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
+                    <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                      {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                    </span>
+                    <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                      Comprar
+                    </button>
+                  </div>
+                </div>
+              }
+              <button class="op-acc-verall" type="button" (click)="selectInstrument('acciones')">
+                Ver todas las Acciones
+              </button>
+            </div>
+          } @else {
+            <div class="op-empty">Cargando acciones…</div>
+          }
+        </div>
+
         <div class="op-home-head">
           <div class="op-search-wrap">
             <input
@@ -162,12 +271,15 @@ const FONDOS: FondoCard[] = [
           @if (destacados().length) {
             <div class="op-movers-grid">
               @for (m of destacados(); track m.symbol) {
-                <div class="op-mover">
+                <div class="op-mover" (click)="selectSymbol(m)">
                   <span class="om-sym">{{ m.symbol }}</span>
                   <span class="om-px num">$ {{ fmt(m.price) }}</span>
                   <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
                     {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
                   </span>
+                  <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
+                    Comprar
+                  </button>
                 </div>
               }
             </div>
@@ -249,6 +361,7 @@ const FONDOS: FondoCard[] = [
                   <th class="num" (click)="toggleSort('pct')" [class.sorted]="panelSort().column === 'pct'">
                     Variación <span class="op-sort-arrow">{{ sortArrow('pct') }}</span>
                   </th>
+                  <th class="op-th-accion"></th>
                 </tr>
               </thead>
               <tbody>
@@ -261,6 +374,11 @@ const FONDOS: FondoCard[] = [
                     <td class="num">{{ fmt(price(r)) }}</td>
                     <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
                       {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                    </td>
+                    <td class="op-td-accion">
+                      <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'panel')">
+                        Comprar
+                      </button>
                     </td>
                   </tr>
                 }
@@ -301,9 +419,12 @@ const FONDOS: FondoCard[] = [
         </div>
 
         @if (historicoData().length > 1) {
-          <svg class="fc-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
-            <polyline class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartPoints()" />
-          </svg>
+          <div class="fc-wrap">
+            <svg class="fc-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
+              <polygon class="fc-area" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartAreaPoints()" />
+              <polyline class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartPoints()" />
+            </svg>
+          </div>
         } @else if (historicoLoading()) {
           <div class="op-empty">Cargando gráfico…</div>
         } @else {
@@ -561,6 +682,28 @@ const FONDOS: FondoCard[] = [
 
         @if (carteraTab() === 'tenencias') {
           @if (tenencias().length) {
+            <div class="op-card op-cart-comp-card">
+              <span class="od-lbl">Composición de la cartera</span>
+              <div class="op-cart-comp-row">
+                @for (c of composicionCartera(); track c.instrumento) {
+                  <span class="op-cart-comp-chip">
+                    <span class="op-cart-comp-pct num">{{ fmt(c.pct, 0) }}%</span>
+                    <span class="op-cart-comp-lbl">{{ c.label }}</span>
+                  </span>
+                }
+              </div>
+            </div>
+
+            <div class="op-pills op-cart-filter">
+              @for (p of tenenciasFilterOptions; track p.id) {
+                <button class="op-pill" type="button" [class.on]="tenenciasFiltro() === p.id" (click)="tenenciasFiltro.set(p.id)">
+                  <span class="op-pill-circle">{{ p.initials }}</span>
+                  <span class="op-pill-label">{{ p.label }}</span>
+                </button>
+              }
+            </div>
+
+            @if (tenenciasFiltradas().length) {
             <div class="op-table-wrap op-cartera-table">
               <table>
                 <thead>
@@ -573,7 +716,7 @@ const FONDOS: FondoCard[] = [
                   </tr>
                 </thead>
                 <tbody>
-                  @for (t of tenencias(); track t.symbol) {
+                  @for (t of tenenciasFiltradas(); track t.symbol) {
                     <tr (click)="toggleTenenciaExpandida(t.symbol)">
                       <td>
                         <span class="opt-sym">{{ t.symbol }}</span>
@@ -603,17 +746,18 @@ const FONDOS: FondoCard[] = [
             </div>
 
             <div class="op-mobile-cards">
-              @for (t of tenencias(); track t.symbol) {
-                <div class="op-card" (click)="toggleTenenciaExpandida(t.symbol)">
-                  <div class="of-row">
-                    <span>
-                      <span class="opt-sym">{{ t.symbol }}</span>
-                      <span class="ori-chip">{{ instrumentoLabel[t.instrumento] }}</span>
-                      @if (t.estimado) { <span class="ori-chip warn">estimado</span> }
-                    </span>
-                    <span class="num">{{ fmt(t.cantidad, 0) }}</span>
+              @for (t of tenenciasFiltradas(); track t.symbol) {
+                <div class="op-card op-cart-card" (click)="toggleTenenciaExpandida(t.symbol)">
+                  <div class="op-id-row">
+                    <span class="opt-sym">{{ t.symbol }}</span>
+                    <span class="ori-chip">{{ instrumentoLabel[t.instrumento] }}</span>
+                    @if (t.estimado) { <span class="ori-chip warn">estimado</span> }
                   </div>
                   <div class="op-dolares-row">
+                    <div class="op-dollar-item">
+                      <span class="od-lbl">Cantidad</span>
+                      <span class="od-val num">{{ fmt(t.cantidad, 0) }}</span>
+                    </div>
                     <div class="op-dollar-item">
                       <span class="od-lbl">Precio prom.</span>
                       <span class="od-val num">{{ fmt(t.precioPromedio) }}</span>
@@ -623,8 +767,9 @@ const FONDOS: FondoCard[] = [
                       <span class="od-val num">{{ fmt(t.valorActual) }}</span>
                     </div>
                   </div>
-                  <div class="op-resumen-prof" [class.pos]="t.pnl >= 0" [class.neg]="t.pnl < 0">
-                    <span class="rp-val num">{{ t.pnl >= 0 ? '+' : '' }}{{ fmt(t.pnl) }}</span>
+                  <div class="op-cart-delta" [class.pos]="t.pnl >= 0" [class.neg]="t.pnl < 0">
+                    <span class="od-lbl">P&amp;L</span>
+                    <span class="op-cart-delta-val num">{{ t.pnl >= 0 ? '+' : '' }}{{ fmt(t.pnl) }}</span>
                   </div>
                   @if (tenenciaExpandida() === t.symbol) {
                     <div class="op-subtabs">
@@ -635,6 +780,12 @@ const FONDOS: FondoCard[] = [
                 </div>
               }
             </div>
+            } @else {
+              <div class="op-empty">
+                No tenés tenencias de este tipo.
+                <button class="op-empty-cta" type="button" (click)="tenenciasFiltro.set('todos')">Ver todos</button>
+              </div>
+            }
           } @else {
             <div class="op-empty">
               Todavía no tenés compras simuladas.
@@ -683,14 +834,14 @@ const FONDOS: FondoCard[] = [
 
             <div class="op-mobile-cards">
               @for (m of movimientosOrdenados(); track m.id) {
-                <div class="op-card">
-                  <div class="of-row">
-                    <span>
+                <div class="op-card op-cart-card">
+                  <div class="op-cart-top">
+                    <div class="op-id-row">
                       <span class="opt-sym">{{ m.symbol }}</span>
                       <span class="ori-chip" [class.accent]="m.tipo === 'compra'" [class.warn]="m.tipo === 'venta'">
                         {{ m.tipo === 'compra' ? 'Compra' : 'Venta' }}
                       </span>
-                    </span>
+                    </div>
                     <span class="of-hint">{{ relativeTime(m.timestamp) }}</span>
                   </div>
                   <div class="op-dolares-row">
@@ -707,7 +858,7 @@ const FONDOS: FondoCard[] = [
                       <span class="od-val num">{{ fmt(m.monto) }}</span>
                     </div>
                   </div>
-                  <span class="ori-chip" [class.warn]="m.estado === 'simulada_pendiente'" [class.pos]="m.estado === 'simulada_liquidada'">
+                  <span class="ori-chip op-cart-status" [class.warn]="m.estado === 'simulada_pendiente'" [class.pos]="m.estado === 'simulada_liquidada'">
                     {{ m.estado === 'simulada_pendiente' ? 'Pendiente' : 'Liquidada' }}
                   </span>
                 </div>
@@ -781,6 +932,23 @@ const FONDOS: FondoCard[] = [
       background: var(--surface-2); color: var(--ink-2);
       font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
     }
+    /* Pill activo (filtro de Tenencias por tipo, ver .op-cart-filter): mismo
+       patrón "flota" que .op-rango-pill.on/.op-cur-pill.on — sombra +
+       anillo interno --line-2, sin color por tipo (ui-kit §5.1: el color
+       comunica dirección/resultado, no decora). */
+    .op-pill.on { border-color: var(--line-2); box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2); }
+    .op-pill.on .op-pill-circle { background: var(--ink); color: var(--surface); }
+
+    /* Composición de la cartera por tipo de instrumento (ver PROMPT 7) —
+       box chico en superficies neutras, % en mono, sin color por tipo. */
+    .op-cart-comp-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
+    .op-cart-comp-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .op-cart-comp-chip {
+      display: inline-flex; align-items: baseline; gap: 5px;
+      padding: 5px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-2);
+    }
+    .op-cart-comp-pct { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); }
+    .op-cart-comp-lbl { font-size: 11.5px; color: var(--ink-2); }
 
     /* Cards genéricas */
     .op-card {
@@ -817,10 +985,80 @@ const FONDOS: FondoCard[] = [
        más abajo), mismo patrón que .mobile-cards/.sector-card de cedears-heatmap.component.ts. */
     .op-mobile-cards { display: none; flex-direction: column; gap: 10px; }
 
-    /* Referencia — una card, filas apiladas (lista), no grilla. Bleed horizontal
-       a los bordes de la card (mismo padding que .op-card, en negativo) para que
-       el hover cubra el ancho completo, como una fila de menú. */
-    .op-ref-list { display: flex; flex-direction: column; margin: 0 -16px; }
+    /* Cards de Tenencias/Movimientos: layout en columna con gap regular
+       (misma separación que .op-movers-grid/.op-fondos-grid). op-id-row
+       hace wrap propio (flex-wrap + gap) en vez de depender de espacios en
+       blanco entre tags del template — con preserveWhitespaces:false (default
+       de Angular) esos nodos de texto se eliminan, así que symbol+chips
+       quedaban pegados sin punto de corte y desbordaban la card en anchos
+       angostos; esa era la causa real del scroll horizontal. */
+    .op-cart-card { display: flex; flex-direction: column; gap: 10px; }
+    .op-id-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .op-cart-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .op-cart-status { align-self: flex-start; }
+    .op-cart-delta {
+      display: inline-flex; flex-direction: column; gap: 2px; align-self: flex-start;
+      padding: 6px 12px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface-2);
+    }
+    .op-cart-delta-val { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--ink); }
+    .op-cart-delta.pos { background: var(--pos-bg); border-color: var(--pos-line); }
+    .op-cart-delta.pos .op-cart-delta-val { color: var(--pos-strong); }
+    .op-cart-delta.neg { background: var(--neg-bg); border-color: var(--neg-line); }
+    .op-cart-delta.neg .op-cart-delta-val { color: var(--neg-strong); }
+
+    /* Acciones — 2 columnas de tabla, mismo mecanismo de grilla que .mosaic
+       de cotizaciones.component.css (grid de N columnas + gap). */
+    .op-acciones-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+
+    /* Acciones en mobile: cards apiladas en vez de las tablas de 4 columnas
+       (Símbolo/Precio/Variación/Comprar no entran en ≤760px — mismo .op-table-wrap
+       que usa Panel, así que en vez de tocar esa clase compartida se oculta
+       .op-acciones-grid entera y se muestra esta lista aparte). Mismo patrón
+       visual de card que cedears-heatmap.component.ts (.sector-card): borde
+       --line, radio --r-lg, fondo --surface. Round 2 (PROMPT 8): la v1 apilaba
+       símbolo/precio/variación/botón en 4 renglones con labels propios y
+       terminaba en cards de 150px+; acá precio+variación+botón comparten un
+       solo renglón (símbolo arriba, todo lo demás abajo) para acercarse al
+       ~doble de alto de una fila de tabla desktop. */
+    .op-acciones-cards { display: none; flex-direction: column; gap: 6px; }
+    .op-acc-card {
+      display: flex; flex-direction: column; gap: 4px; text-align: left;
+      padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg);
+      background: var(--surface); box-shadow: var(--shadow-sm); cursor: pointer;
+    }
+    .op-acc-id { display: flex; flex-direction: column; min-width: 0; }
+    /* .opt-desc se oculta globalmente en mobile (ver .opt-desc{display:none}
+       más abajo, breakpoint 760px) — acá se reactiva sólo dentro de esta card
+       (selector de mayor especificidad), debajo del símbolo como en la tabla
+       desktop, pero a una sola línea con ellipsis en vez de wrap libre. */
+    .op-acc-id .opt-desc {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    .op-acc-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .op-acc-price { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--ink); }
+    .op-acc-chip {
+      display: inline-flex; align-items: center; height: 20px; padding: 0 7px;
+      border-radius: var(--r-sm); font-size: 11px; font-weight: 700;
+      background: var(--surface-2); color: var(--ink-3); border: 1px solid var(--line);
+    }
+    .op-acc-chip.pos { background: var(--pos-bg); border-color: var(--pos-line); color: var(--pos); }
+    .op-acc-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
+    .op-acc-buy { margin-left: auto; flex-shrink: 0; height: 32px; padding: 0 14px; font-size: 12.5px; }
+
+    /* "Ver todas las Acciones", sólo mobile (.op-acciones-cards ya oculta en
+       desktop). Mismo patrón que .op-back/.op-empty-cta. */
+    .op-acc-verall {
+      height: 32px; margin-top: 2px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--surface); color: var(--ink-2);
+      font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; cursor: pointer;
+      transition: border-color .12s;
+    }
+    .op-acc-verall:hover { border-color: var(--line-2); }
+    .op-acc-verall:active { transform: translateY(1px); }
+
+    /* Referencia — grilla de 2 columnas. Bleed horizontal a los bordes de la
+       card (padding de .op-card en negativo) para que el hover llene la fila. */
+    .op-ref-list { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 8px; margin: 0 -16px; }
     .op-ref-row {
       display: flex; align-items: center; gap: 10px; width: 100%;
       padding: 10px 16px; border: 0; border-bottom: 1px solid var(--line);
@@ -838,18 +1076,23 @@ const FONDOS: FondoCard[] = [
     .orr-val { font-size: 15px; font-weight: 600; color: var(--ink); }
     .orr-chevron { color: var(--ink-3); font-size: 15px; line-height: 1; flex-shrink: 0; }
 
-    /* Destacados */
-    .op-movers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    /* Destacados — grilla fija de 2 columnas. Tarjeta clickeable (abre Ficha,
+       ver selectSymbol) con el botón "Comprar" superpuesto arriba a la
+       derecha — mismo patrón stopPropagation que .op-buy-row-btn. */
+    .op-movers-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .op-mover {
-      display: flex; flex-direction: column; gap: 4px;
+      position: relative; display: flex; flex-direction: column; gap: 4px;
       padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r);
+      cursor: pointer; transition: border-color .12s, background .12s;
     }
-    .om-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); }
+    .op-mover:hover { border-color: var(--line-2); background: var(--accent-sf); }
+    .om-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); padding-right: 64px; }
     .om-px { font-size: 13px; color: var(--ink-2); }
     .om-chip { align-self: flex-start; }
+    .op-buy-mover-btn { position: absolute; top: 8px; right: 10px; }
 
-    /* Fondos */
-    .op-fondos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    /* Fondos — grilla fija de 2 columnas */
+    .op-fondos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .op-fondo {
       display: flex; flex-direction: column; gap: 4px;
       padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r);
@@ -918,6 +1161,21 @@ const FONDOS: FondoCard[] = [
     .op-table-wrap tbody tr:hover td { background: var(--accent-sf); }
     .op-table-wrap td.num.pos { color: var(--pos); font-weight: 600; }
     .op-table-wrap td.num.neg { color: var(--neg); font-weight: 600; }
+
+    /* Columna "Comprar" de las tablas (Panel y Acciones de Home): botón
+       visible por fila, no escondido en un menú. stopPropagation en el click
+       evita reabrir Ficha (la fila sigue siendo clickeable aparte, ver
+       selectSymbol) — mismo patrón que "Comprar más"/"Vender" de Cartera. */
+    .op-th-accion { width: 1%; }
+    .op-td-accion { white-space: nowrap; }
+    .op-buy-row-btn {
+      height: 26px; padding: 0 10px; border: 1px solid var(--accent); border-radius: var(--r-sm);
+      background: var(--accent-sf); color: var(--accent-2);
+      font-family: var(--font-ui); font-size: 11.5px; font-weight: 700; cursor: pointer;
+      transition: background .12s, transform .04s;
+    }
+    .op-buy-row-btn:hover { background: var(--accent); color: var(--surface); }
+    .op-buy-row-btn:active { transform: translateY(1px); }
     .opt-sym { font-family: var(--font-mono); font-weight: 600; }
     .opt-desc { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); font-family: var(--font-ui); }
     tr.op-buy td { background: var(--accent-sf); }
@@ -938,25 +1196,35 @@ const FONDOS: FondoCard[] = [
     .fp-chip.pos { background: var(--pos-bg); border-color: var(--pos-line); color: var(--pos); }
     .fp-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
 
-    /* Ficha — selector de rango, mismo espíritu que las pills de instrumento */
-    .op-rango-pills { display: inline-flex; gap: 2px; padding: 3px; align-self: flex-start;
-      border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2);
+    /* Ficha — selector de rango: mismo patrón .seg del ui-kit */
+    .op-rango-pills {
+      display: inline-flex; gap: 2px; padding: 3px; align-self: flex-start;
+      border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2);
     }
     .op-rango-pill {
       height: 28px; min-width: 44px; padding: 0 10px; border: 0; border-radius: var(--r-sm);
       background: transparent; color: var(--ink-2);
       font-family: var(--font-mono); font-size: 12px; font-weight: 700; cursor: pointer;
-      transition: background .14s, box-shadow .14s, color .14s;
+      transition: color .12s, background .12s, box-shadow .12s;
     }
-    .op-rango-pill.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
-    .op-rango-pill:not(.on):hover { color: var(--ink); }
+    .op-rango-pill:hover { color: var(--ink); }
+    .op-rango-pill.on {
+      background: var(--surface); color: var(--ink);
+      box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2);
+    }
 
-    /* Ficha — gráfico SVG a mano, sin librería. Color = familia pos/neg según
-       último cierre vs. primero del rango, nunca decorativo. */
-    .fc-svg { width: 100%; height: 160px; display: block; }
+    /* Ficha — contenedor del gráfico: card con borde y radio, igual que tablas */
+    .fc-wrap {
+      border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
+      padding: 16px;
+    }
+    .fc-svg { width: 100%; height: 148px; display: block; }
     .fc-line { fill: none; stroke-width: 2; }
     .fc-line.pos { stroke: var(--pos); }
     .fc-line.neg { stroke: var(--neg); }
+    .fc-area { opacity: .12; }
+    .fc-area.pos { fill: var(--pos); }
+    .fc-area.neg { fill: var(--neg); }
 
     /* Ficha — mini-libro de puntas, colapsable */
     .op-book-toggle {
@@ -1117,7 +1385,12 @@ const FONDOS: FondoCard[] = [
       .op-dollar-item:not(:first-child) { padding-top: 8px; }
       .op-dollar-item:not(:last-child) { padding-bottom: 8px; }
       .op-dollar-item:last-child { border-bottom: 0; }
+      .op-acciones-grid { display: none; }
+      .op-acciones-cards { display: flex; }
+      .op-ref-list { grid-template-columns: 1fr; }
       .op-ref-row { flex-wrap: wrap; }
+      .op-movers-grid { grid-template-columns: 1fr; }
+      .op-fondos-grid { grid-template-columns: 1fr; }
       .op-result { grid-template-columns: 72px 1fr auto; }
       .or-desc { display: none; }
       .op-panel-toolbar { gap: 10px; }
@@ -1173,8 +1446,10 @@ export class OperarComponent implements OnInit {
   ticketBannerShown = signal(false);
   // Compra o venta (ver openTicket) y subvista desde la que se abrió el
   // Ticket, para saber a dónde volver con "← Volver" (goBackFromTicketForm).
+  // 'panel'/'home' se agregan para el botón "Comprar" directo desde las
+  // filas de Panel y de Home (Acciones/Destacados) — ver comprarDirecto.
   ticketTipo = signal<TicketTipoOperacion>('compra');
-  ticketOrigin = signal<'ficha' | 'cartera'>('ficha');
+  ticketOrigin = signal<'ficha' | 'cartera' | 'panel' | 'home'>('ficha');
 
   // Estado propio de la subvista Cartera — simulación en localStorage, ver
   // operar-storage.ts y operar.types.ts §Cartera simulada.
@@ -1183,6 +1458,40 @@ export class OperarComponent implements OnInit {
   // Symbol de Tenencias con las acciones "Comprar más"/"Vender" desplegadas.
   tenenciaExpandida = signal<string | null>(null);
   instrumentoLabel = INSTRUMENTO_CHIP_LABEL;
+
+  // Filtro por tipo de instrumento de Tenencias — mismos pills que Home
+  // (ver .op-pills/.op-pill), sólo se agrega 'todos' adelante. 'Todos' por
+  // default (ver PROMPT 7). No afecta a Movimientos ni a la composición
+  // (composicionCartera se calcula siempre sobre TODAS las tenencias).
+  tenenciasFiltro = signal<InstrumentId | 'todos'>('todos');
+  tenenciasFilterOptions: Array<{ id: InstrumentId | 'todos'; label: string; initials: string }> = [
+    { id: 'todos', label: 'Todos', initials: 'TD' },
+    ...INSTRUMENT_PILLS,
+  ];
+  tenenciasFiltradas = computed<TenenciaRow[]>(() => {
+    const filtro = this.tenenciasFiltro();
+    const all = this.tenencias();
+    return filtro === 'todos' ? all : all.filter((t) => t.instrumento === filtro);
+  });
+
+  // Composición de la cartera por tipo de instrumento — % sobre el VALOR
+  // actual de mercado (cantidad × precio actual, misma métrica que ya usa
+  // el resumen de Cartera: Total invertido/Valor actual), no por cantidad
+  // de posiciones. ASUNCIÓN A CONFIRMAR con Elio, ver reporte del PROMPT 7.
+  // Siempre sobre tenencias() completas (ignora tenenciasFiltro) — el
+  // widget muestra la composición real de TODA la cartera.
+  composicionCartera = computed<{ instrumento: OperarInstrumento; label: string; pct: number }[]>(() => {
+    const rows = this.tenencias();
+    const total = rows.reduce((s, t) => s + t.valorActual, 0);
+    if (total <= 0) return [];
+    const porTipo = new Map<OperarInstrumento, number>();
+    for (const t of rows) {
+      porTipo.set(t.instrumento, (porTipo.get(t.instrumento) ?? 0) + t.valorActual);
+    }
+    return [...porTipo.entries()]
+      .map(([instrumento, valor]) => ({ instrumento, label: this.instrumentoLabel[instrumento], pct: (valor / total) * 100 }))
+      .sort((a, b) => b.pct - a.pct);
+  });
 
   private homeLoaded = false;
   // Ids ya fetcheados en esta sesión del componente (letras/ons son lazy;
@@ -1221,6 +1530,21 @@ export class OperarComponent implements OnInit {
 
   // AL30 vive en el panel de bonos (IOL mapea bonos soberanos a titulosPublicos).
   al30 = computed<PanelRow | null>(() => this.bonosRows().find((r) => r.symbol === 'AL30') ?? null);
+
+  // Todas las Acciones (primer contenedor de Home): misma fuente real que
+  // consume Panel para id==='acciones' (accionesRows, ver loadHome), sin
+  // recorte Líder/General — acá se listan completas, ordenadas por símbolo,
+  // repartidas en 2 columnas (ver op-acciones-grid en el template).
+  accionesAll = computed<PanelRow[]>(() =>
+    [...this.accionesRows()].sort((a, b) => String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')))
+  );
+  accionesColLeft = computed<PanelRow[]>(() => this.accionesAll().slice(0, Math.ceil(this.accionesAll().length / 2)));
+  accionesColRight = computed<PanelRow[]>(() => this.accionesAll().slice(Math.ceil(this.accionesAll().length / 2)));
+  // Preview mobile de Acciones (PROMPT 9): primeras 8, mismo orden/fuente que
+  // accionesAll (alfabético, sin criterio de "destacadas" ni ordenar por
+  // variación — no se pidió). Sólo se usa en .op-acciones-cards (≤760px); el
+  // desktop sigue mostrando accionesColLeft/accionesColRight completas.
+  accionesPreviewMobile = computed<PanelRow[]>(() => this.accionesAll().slice(0, 8));
 
   // Top 4 movers por variación absoluta, 100% real sobre acciones+cedears cacheados.
   destacados = computed<MoverRow[]>(() => {
@@ -1407,6 +1731,16 @@ export class OperarComponent implements OnInit {
       .join(' ');
   });
 
+  // Área bajo la línea del gráfico: polígono que va de la base a la línea
+  // y vuelve, mismo viewBox que chartPoints.
+  chartAreaPoints = computed<string>(() => {
+    const pts = this.chartPoints();
+    if (!pts) return '';
+    const W = 600, H = 160, PAD = 6;
+    const baseline = `${PAD},${H - PAD} ${W - PAD},${H - PAD}`;
+    return `${baseline} ${pts}`;
+  });
+
   // Precio efectivo del Paso 1: precio límite si el usuario eligió esa
   // modalidad; si no, el lado del libro que corresponde según la dirección:
   // comprar paga la punta Venta (px_ask), vender cobra la punta Compra
@@ -1567,7 +1901,9 @@ export class OperarComponent implements OnInit {
     return s.dir === 'asc' ? '▲' : '▼';
   }
 
-  selectSymbol(row: PanelRow) {
+  // Acepta cualquier fila con symbol (PanelRow o MoverRow de Destacados) —
+  // Ficha sólo necesita el symbol para buscar la fila cacheada (selectedRow).
+  selectSymbol(row: { symbol: string }) {
     this.selectedSymbol.set(row.symbol);
     this.chartRango.set('1M');
     this.fichaBookOpen.set(true);
@@ -1629,7 +1965,16 @@ export class OperarComponent implements OnInit {
     this.openTicket('venta', symbol, 'cartera');
   }
 
-  private openTicket(tipo: TicketTipoOperacion, symbol: string, origin: 'ficha' | 'cartera') {
+  // Botón "Comprar" directo desde una fila de Panel o de Home (Acciones/
+  // Destacados): abre el Ticket para ESE symbol sin pasar por Ficha —
+  // mismo mecanismo que goTicket()/comprarMasDesdeCartera(), sólo cambia el
+  // origin para que "← Volver" regrese a Panel/Home en vez de a Ficha.
+  // origin coincide 1:1 con el signal subview correspondiente.
+  comprarDirecto(symbol: string, origin: 'panel' | 'home') {
+    this.openTicket('compra', symbol, origin);
+  }
+
+  private openTicket(tipo: TicketTipoOperacion, symbol: string, origin: 'ficha' | 'cartera' | 'panel' | 'home') {
     this.selectedSymbol.set(symbol);
     this.ticketTipo.set(tipo);
     this.ticketOrigin.set(origin);
@@ -1641,9 +1986,10 @@ export class OperarComponent implements OnInit {
   }
 
   // Vuelve a donde se abrió el Ticket (ver openTicket): Ficha si vino del
-  // botón "Comprar" de una ficha, Cartera si vino de Tenencias.
+  // botón "Comprar" de una ficha, Cartera si vino de Tenencias, o Panel/Home
+  // si vino del botón "Comprar" directo de una fila (ver comprarDirecto).
   goBackFromTicketForm() {
-    this.subview.set(this.ticketOrigin() === 'cartera' ? 'cartera' : 'ficha');
+    this.subview.set(this.ticketOrigin());
   }
 
   toggleTenenciaExpandida(symbol: string) {
