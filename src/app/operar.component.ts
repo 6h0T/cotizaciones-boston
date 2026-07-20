@@ -215,77 +215,104 @@ const FONDOS: FondoCard[] = [
           }
         </div>
 
-        <div class="op-card op-dolares">
-          <h3>Dólares</h3>
-          <div class="op-dolares-row">
-            @for (d of dolarStrip; track d.label) {
-              <div class="op-dollar-item">
-                <span class="od-lbl">{{ d.label }}</span>
-                <span class="od-val num">$ {{ fmt(d.value) }}</span>
+        <!-- Sección 2 de Home: mosaico de 2 columnas, mismo mecanismo de grilla
+             que .mosaic/.col de cotizaciones.component.css (grid de N columnas
+             fijas + gap, colapsa a 1 columna en el mismo breakpoint ≤1000px).
+             Sólo Dólares+Referencia (izquierda) vs Destacados (derecha) viven
+             en el grid de 2 columnas: Fondos se sacó afuera, a lo ancho
+             completo, como su propia sección debajo (ver .op-card.op-fondos
+             más abajo) — con Fondos adentro de la columna derecha, esa
+             columna quedaba más alta que Dólares+Referencia y el sobrante de
+             altura de la izquierda quedaba como hueco vacío al lado de
+             Fondos (align-items:start no empareja alturas de columna). Sacar
+             Fondos del grid es el cambio mínimo: al ser un bloque aparte en
+             flujo normal, no le importa cuál columna del mosaico fue más
+             alta, así que no hay hueco posible antes de que arranque.
+             Además, el grid ya NO usa align-items:start (ver CSS,
+             .op-home-mosaic): con :start cada columna medía sólo su propio
+             contenido y la izquierda (Dólares+Referencia) quedaba más baja
+             que Destacados, terminando en alturas distintas — con el
+             default (stretch) el grid estira ambas columnas a la altura de
+             la fila más alta automáticamente, sin necesitar height:100%
+             adicional en .op-home-col (es un div simple sin padding/borde
+             propio, el stretch del grid ya alcanza). Mismo mecanismo que se
+             usó para igualar Puntas/Orden en Ticket.
+             Ninguna card se reescribe: se reubican tal cual estaban. -->
+        <div class="op-home-mosaic">
+          <div class="op-home-col">
+            <div class="op-card op-dolares">
+              <h3>Dólares</h3>
+              <div class="op-dolares-row">
+                @for (d of dolarStrip; track d.label) {
+                  <div class="op-dollar-item">
+                    <span class="od-lbl">{{ d.label }}</span>
+                    <span class="od-val num">$ {{ fmt(d.value) }}</span>
+                  </div>
+                }
               </div>
+            </div>
+
+            <div class="op-card op-ref">
+              <h3>Referencia</h3>
+              <div class="op-ref-list">
+                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                  <span class="orr-lbl">AL30</span>
+                  <span class="orr-right">
+                    @if (al30(); as b) {
+                      <span class="orr-val num">$ {{ fmt(price(b)) }}</span>
+                      <span class="ori-chip" [class.pos]="b.pct_change >= 0" [class.neg]="b.pct_change < 0">
+                        {{ b.pct_change >= 0 ? '+' : '' }}{{ fmt(b.pct_change) }}%
+                      </span>
+                    } @else {
+                      <span class="orr-val num">—</span>
+                      <span class="ori-chip">sin datos</span>
+                    }
+                  </span>
+                  <span class="orr-chevron">›</span>
+                </button>
+                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                  <span class="orr-lbl">Caución</span>
+                  <span class="orr-right">
+                    <span class="orr-val num">TNA 32,5 %</span>
+                    <span class="ori-chip warn">estimado</span>
+                    <!-- TODO: /api/v2/operar/CPD/Comisiones para tasa real -->
+                  </span>
+                  <span class="orr-chevron">›</span>
+                </button>
+                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                  <span class="orr-lbl">Plazo fijo</span>
+                  <span class="orr-right">
+                    <span class="orr-val num">TNA 28,0 %</span>
+                    <span class="ori-chip warn">estimado</span>
+                    <!-- TODO: fuente de tasas de plazo fijo -->
+                  </span>
+                  <span class="orr-chevron">›</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="op-card op-destacados">
+            <h3>Destacados</h3>
+            @if (destacados().length) {
+              <div class="op-movers-grid">
+                @for (m of destacados(); track m.symbol) {
+                  <div class="op-mover" (click)="selectSymbol(m)">
+                    <span class="om-sym">{{ m.symbol }}</span>
+                    <span class="om-px num">$ {{ fmt(m.price) }}</span>
+                    <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
+                      {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
+                    </span>
+                    <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
+                      Comprar
+                    </button>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="op-empty">Esperando cotizaciones…</div>
             }
           </div>
-        </div>
-
-        <div class="op-card op-ref">
-          <h3>Referencia</h3>
-          <div class="op-ref-list">
-            <button class="op-ref-row" type="button" (click)="onRefRowClick()">
-              <span class="orr-lbl">AL30</span>
-              <span class="orr-right">
-                @if (al30(); as b) {
-                  <span class="orr-val num">$ {{ fmt(price(b)) }}</span>
-                  <span class="ori-chip" [class.pos]="b.pct_change >= 0" [class.neg]="b.pct_change < 0">
-                    {{ b.pct_change >= 0 ? '+' : '' }}{{ fmt(b.pct_change) }}%
-                  </span>
-                } @else {
-                  <span class="orr-val num">—</span>
-                  <span class="ori-chip">sin datos</span>
-                }
-              </span>
-              <span class="orr-chevron">›</span>
-            </button>
-            <button class="op-ref-row" type="button" (click)="onRefRowClick()">
-              <span class="orr-lbl">Caución</span>
-              <span class="orr-right">
-                <span class="orr-val num">TNA 32,5 %</span>
-                <span class="ori-chip warn">estimado</span>
-                <!-- TODO: /api/v2/operar/CPD/Comisiones para tasa real -->
-              </span>
-              <span class="orr-chevron">›</span>
-            </button>
-            <button class="op-ref-row" type="button" (click)="onRefRowClick()">
-              <span class="orr-lbl">Plazo fijo</span>
-              <span class="orr-right">
-                <span class="orr-val num">TNA 28,0 %</span>
-                <span class="ori-chip warn">estimado</span>
-                <!-- TODO: fuente de tasas de plazo fijo -->
-              </span>
-              <span class="orr-chevron">›</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="op-card op-destacados">
-          <h3>Destacados</h3>
-          @if (destacados().length) {
-            <div class="op-movers-grid">
-              @for (m of destacados(); track m.symbol) {
-                <div class="op-mover" (click)="selectSymbol(m)">
-                  <span class="om-sym">{{ m.symbol }}</span>
-                  <span class="om-px num">$ {{ fmt(m.price) }}</span>
-                  <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
-                    {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
-                  </span>
-                  <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
-                    Comprar
-                  </button>
-                </div>
-              }
-            </div>
-          } @else {
-            <div class="op-empty">Esperando cotizaciones…</div>
-          }
         </div>
 
         <div class="op-card op-fondos">
@@ -410,49 +437,64 @@ const FONDOS: FondoCard[] = [
           }
         </div>
 
-        <div class="op-rango-pills">
-          @for (r of chartRangos; track r.id) {
-            <button class="op-rango-pill" type="button" [class.on]="chartRango() === r.id" (click)="selectRango(r.id)">
-              {{ r.label }}
-            </button>
-          }
-        </div>
-
-        @if (historicoData().length > 1) {
-          <div class="fc-wrap">
-            <svg class="fc-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
-              <polygon class="fc-area" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartAreaPoints()" />
-              <polyline class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartPoints()" />
-            </svg>
-          </div>
-        } @else if (historicoLoading()) {
-          <div class="op-empty">Cargando gráfico…</div>
-        } @else {
-          <div class="op-empty">Sin datos históricos para este rango.</div>
-        }
-
-        <div class="op-card op-book">
-          <button class="op-book-toggle" type="button" (click)="fichaBookOpen.set(!fichaBookOpen())">
-            <span class="ob-title-wrap">
-              <h3>Puntas</h3>
-              @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
-            </span>
-            <span class="ob-chevron" [class.open]="fichaBookOpen()">›</span>
-          </button>
-          @if (fichaBookOpen()) {
-            <div class="op-book-row">
-              <div class="ob-side ob-buy">
-                <span class="ob-lbl">Compra</span>
-                <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
-                <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
-              </div>
-              <div class="ob-side ob-sell">
-                <span class="ob-lbl">Venta</span>
-                <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
-                <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
-              </div>
+        <!-- Sección de 2 columnas de Ficha: mismo mecanismo de grilla que
+             .mosaic/.col de cotizaciones.component.css (grid de 2 columnas +
+             gap 14px, align-items:start, colapsa a 1 columna en el mismo
+             breakpoint ≤1000px que usa Home — ver .op-ficha-mosaic/@media
+             más abajo). Columna izquierda: selector de rango + gráfico
+             (van juntos, el selector controla el gráfico). Columna derecha:
+             Puntas. Ningún bloque se reescribe, sólo se reubican dentro de
+             la nueva grilla — el botón sticky Comprar queda fuera, debajo,
+             con su comportamiento intacto. -->
+        <div class="op-ficha-mosaic">
+          <div class="op-ficha-col">
+            <div class="op-rango-pills">
+              @for (r of chartRangos; track r.id) {
+                <button class="op-rango-pill" type="button" [class.on]="chartRango() === r.id" (click)="selectRango(r.id)">
+                  {{ r.label }}
+                </button>
+              }
             </div>
-          }
+
+            @if (historicoData().length > 1) {
+              <div class="fc-wrap">
+                <svg class="fc-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
+                  <polygon class="fc-area" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartAreaPoints()" />
+                  <polyline class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartPoints()" />
+                </svg>
+              </div>
+            } @else if (historicoLoading()) {
+              <div class="op-empty">Cargando gráfico…</div>
+            } @else {
+              <div class="op-empty">Sin datos históricos para este rango.</div>
+            }
+          </div>
+
+          <div class="op-ficha-col">
+            <div class="op-card op-book">
+              <button class="op-book-toggle" type="button" (click)="fichaBookOpen.set(!fichaBookOpen())">
+                <span class="ob-title-wrap">
+                  <h3>Puntas</h3>
+                  @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
+                </span>
+                <span class="ob-chevron" [class.open]="fichaBookOpen()">›</span>
+              </button>
+              @if (fichaBookOpen()) {
+                <div class="op-book-row">
+                  <div class="ob-side ob-buy">
+                    <span class="ob-lbl">Compra</span>
+                    <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
+                    <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
+                  </div>
+                  <div class="ob-side ob-sell">
+                    <span class="ob-lbl">Venta</span>
+                    <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
+                    <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
         </div>
 
         <button class="op-buy-sticky" type="button" (click)="goTicket()">Comprar {{ selectedSymbol() }}</button>
@@ -466,102 +508,162 @@ const FONDOS: FondoCard[] = [
             </div>
           </div>
 
-          <div class="op-card op-book">
-            <div class="ob-title-wrap">
-              <h3>Puntas</h3>
-              @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
-            </div>
-            <div class="op-book-row">
-              <div class="ob-side ob-buy">
-                <span class="ob-lbl">Compra</span>
-                <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
-                <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
+          <!-- Puntas + Orden en 2 columnas — grid dedicado del Ticket
+               (.op-ticket-mosaic), mismo mecanismo que .op-home-mosaic/
+               .op-ficha-mosaic (grid de 2 columnas + gap 14px). A diferencia
+               de esos otros mosaicos, acá align-items es stretch (default,
+               ver CSS): Orden tiene más filas que Puntas (Precio/Plazo +
+               Cantidad/Monto vs. sólo Compra/Venta), así que con
+               align-items:start la columna de Puntas quedaba visualmente más
+               chica al lado de Orden — con stretch ambas cards ocupan la
+               altura de la fila más alta del grid (Orden), Puntas se estira
+               parejo aunque su contenido siga arriba. Se usa una clase propia
+               en vez de reusar .op-ficha-mosaic para no atar el
+               breakpoint/estilo del Ticket al de Ficha (subvistas distintas,
+               alcance estricto pide no tocar Ficha). Mismo breakpoint
+               ≤1000px que el resto de la app (ver @media más abajo) — por
+               debajo de ese ancho las columnas colapsan a 1 sola, Puntas
+               arriba y Orden abajo. El botón "Revisar orden" vive DENTRO de
+               la card Orden, como cierre de esa columna (ver op-order-body
+               más abajo) — ya no es una franja a lo ancho completo de toda
+               la pantalla. Contenido interno de cada card intacto. -->
+          <div class="op-ticket-mosaic">
+            <!-- op-book-fill: clase adicional SOLO en esta instancia de
+                 Ticket (combinada con op-card op-book, igual que
+                 op-book-row-stacked más abajo) — Ficha usa "op-card op-book"
+                 sin este modificador y no se ve afectada. Cadena de alturas
+                 completa para que Compra/Venta se repartan el 100% de la
+                 columna en partes iguales (ver CSS, selectores
+                 .op-card.op-book-fill / .op-book-row-stacked / .ob-side
+                 dentro de ese scope):
+                 grid (align-items:stretch, default) estira este .op-card a
+                 la altura de fila (= altura de Orden) → op-book-fill lo
+                 vuelve flex-column con height:100% → op-book-row-stacked
+                 toma flex:1 de ese alto → cada .ob-side toma flex:1 1 0
+                 del alto de op-book-row-stacked. -->
+            <div class="op-card op-book op-book-fill">
+              <div class="ob-title-wrap">
+                <h3>Puntas</h3>
+                @if (bookIsEmpty(selectedRow())) { <span class="ori-chip warn">estimado</span> }
               </div>
-              <div class="ob-side ob-sell">
-                <span class="ob-lbl">Venta</span>
-                <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
-                <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
+              <!-- Compra/Venta apiladas (no lado a lado) SOLO en esta
+                   instancia de Ticket: clase adicional op-book-row-stacked
+                   combinada con op-book-row (ver CSS, selector compuesto
+                   .op-book-row.op-book-row-stacked) — Ficha sigue usando
+                   op-book-row sola, sin este modificador, así que su
+                   Compra/Venta lado a lado no cambia. -->
+              <div class="op-book-row op-book-row-stacked">
+                <div class="ob-side ob-buy">
+                  <span class="ob-lbl">Compra</span>
+                  <span class="ob-qty num">{{ fmt(selectedRow()?.q_bid ?? 0, 0) }}</span>
+                  <span class="ob-px num">{{ fmt(bookBidPx(selectedRow())) }}</span>
+                </div>
+                <div class="ob-side ob-sell">
+                  <span class="ob-lbl">Venta</span>
+                  <span class="ob-px num">{{ fmt(bookAskPx(selectedRow())) }}</span>
+                  <span class="ob-qty num">{{ fmt(selectedRow()?.q_ask ?? 0, 0) }}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="op-card op-order">
-            <h3>Orden</h3>
-            <div class="op-order-body">
-              <div class="op-ticket-row">
-                <label class="op-field">
-                  <span class="of-lbl">Precio</span>
-                  <select class="op-select" [ngModel]="ticketState().tipoPrecio" (ngModelChange)="setTipoPrecio($event)">
-                    @for (t of tipoPrecioOpts; track t.id) {
-                      <option [value]="t.id">{{ t.label }}</option>
-                    }
-                  </select>
-                </label>
-
-                @if (ticketState().tipoPrecio === 'limite') {
+            <div class="op-card op-order">
+              <h3>Orden</h3>
+              <div class="op-order-body">
+                <div class="op-ticket-row">
                   <label class="op-field">
-                    <span class="of-lbl">Precio límite</span>
-                    <input
-                      class="op-input num"
-                      type="number" min="0" step="0.01"
-                      [ngModel]="ticketState().precioLimite"
-                      (ngModelChange)="setPrecioLimite($event)"
-                    />
+                    <span class="of-lbl">Precio</span>
+                    <select class="op-select" [ngModel]="ticketState().tipoPrecio" (ngModelChange)="setTipoPrecio($event)">
+                      @for (t of tipoPrecioOpts; track t.id) {
+                        <option [value]="t.id">{{ t.label }}</option>
+                      }
+                    </select>
                   </label>
-                }
 
-                <label class="op-field">
-                  <span class="of-lbl">Plazo de liquidación</span>
-                  <select class="op-select" [ngModel]="ticketState().plazo" (ngModelChange)="setPlazo($event)">
-                    @for (p of plazoOpts; track p.id) {
-                      <option [value]="p.id">{{ p.label }}</option>
-                    }
-                  </select>
-                </label>
-              </div>
-
-              <div class="op-field">
-                <div class="of-row">
-                  <span class="of-lbl">Cantidad</span>
-                  @if (ticketTipo() === 'venta') {
-                    <span class="of-hint">Disponible: {{ fmt(maxVendible(), 0) }}</span>
+                  @if (ticketState().tipoPrecio === 'limite') {
+                    <label class="op-field">
+                      <span class="of-lbl">Precio límite</span>
+                      <input
+                        class="op-input num"
+                        type="number" min="0" step="0.01"
+                        [ngModel]="ticketState().precioLimite"
+                        (ngModelChange)="setPrecioLimite($event)"
+                      />
+                    </label>
                   }
-                </div>
-                <div class="op-stepper">
-                  <input
-                    class="op-step-input num"
-                    type="number" min="0" step="1"
-                    [ngModel]="ticketState().cantidad"
-                    (ngModelChange)="setCantidad($event)"
-                  />
-                  <button class="op-step-btn" type="button" (click)="decCantidad()" [disabled]="ticketState().cantidad <= 0">−</button>
-                  <button class="op-step-btn" type="button" (click)="incCantidad()" [disabled]="ticketState().cantidad >= maxVendible()">+</button>
-                </div>
-              </div>
 
-              <div class="op-field">
-                <div class="of-row">
-                  <span class="of-lbl">Monto a invertir</span>
-                  @if (montoBelowMinimum()) {
-                    <span class="of-hint of-hint-warn">No alcanza para 1 nominal · mín. $ {{ fmt(precioEfectivo()) }}</span>
-                  } @else {
-                    <!-- TODO: viene de estadocuenta si se habilita más adelante -->
-                    <span class="of-hint">Disponible: $ 0,00</span>
-                  }
+                  <label class="op-field">
+                    <span class="of-lbl">Plazo de liquidación</span>
+                    <select class="op-select" [ngModel]="ticketState().plazo" (ngModelChange)="setPlazo($event)">
+                      @for (p of plazoOpts; track p.id) {
+                        <option [value]="p.id">{{ p.label }}</option>
+                      }
+                    </select>
+                  </label>
                 </div>
-                <input
-                  class="op-input op-input-monto num"
-                  type="number" min="0" step="100"
-                  [ngModel]="ticketState().monto"
-                  (ngModelChange)="setMonto($event)"
-                />
+
+                <!-- Cantidad + Monto a invertir en 2 columnas — mismo contenedor
+                     .op-ticket-row/.op-field que ya usan Precio/Plazo de arriba
+                     (flex + gap 14px + flex-wrap, min-width 140px por campo).
+                     Reusar el contenedor existente evita reescribir el
+                     comportamiento responsive: al no entrar los 2 min-width
+                     140px + gap en el ancho disponible, flex-wrap los apila en
+                     1 columna igual que ya le pasa a Precio/Plazo en mobile —
+                     no hace falta una media query nueva. Stepper de Cantidad y
+                     label "Disponible"/aviso de Monto quedan intactos, sólo se
+                     reubican dentro de la fila. -->
+                <div class="op-ticket-row">
+                  <div class="op-field">
+                    <div class="of-row">
+                      <span class="of-lbl">Cantidad</span>
+                      @if (ticketTipo() === 'venta') {
+                        <span class="of-hint">Disponible: {{ fmt(maxVendible(), 0) }}</span>
+                      }
+                    </div>
+                    <div class="op-stepper">
+                      <input
+                        class="op-step-input num"
+                        type="number" min="0" step="1"
+                        [ngModel]="ticketState().cantidad"
+                        (ngModelChange)="setCantidad($event)"
+                      />
+                      <button class="op-step-btn" type="button" (click)="decCantidad()" [disabled]="ticketState().cantidad <= 0">−</button>
+                      <button class="op-step-btn" type="button" (click)="incCantidad()" [disabled]="ticketState().cantidad >= maxVendible()">+</button>
+                    </div>
+                  </div>
+
+                  <div class="op-field">
+                    <div class="of-row">
+                      <span class="of-lbl">Monto a invertir</span>
+                      @if (montoBelowMinimum()) {
+                        <span class="of-hint of-hint-warn">No alcanza para 1 nominal · mín. $ {{ fmt(precioEfectivo()) }}</span>
+                      } @else {
+                        <!-- TODO: viene de estadocuenta si se habilita más adelante -->
+                        <span class="of-hint">Disponible: $ 0,00</span>
+                      }
+                    </div>
+                    <input
+                      class="op-input op-input-monto num"
+                      type="number" min="0" step="100"
+                      [ngModel]="ticketState().monto"
+                      (ngModelChange)="setMonto($event)"
+                    />
+                  </div>
+                </div>
+
+                <!-- "Revisar orden" como cierre de la columna Orden (ver
+                     comentario del mosaico más arriba) — mismo botón/clases
+                     de siempre, sólo se reubica dentro de op-order-body en
+                     vez de vivir afuera de las 2 columnas. margin-top:auto
+                     (op-order-body es flex-column) lo empuja al fondo de la
+                     card cuando Orden queda más baja que su contenido en
+                     mobile (1 columna, ver @media) sin afectar el layout de
+                     desktop, donde ya es el último elemento del flujo. -->
+                <button class="op-buy-sticky op-buy-sticky-sm" type="button" [disabled]="ticketState().cantidad <= 0" (click)="goTicketConfirmar()">
+                  Revisar orden
+                </button>
               </div>
             </div>
           </div>
-
-          <button class="op-buy-sticky op-buy-sticky-sm" type="button" [disabled]="ticketState().cantidad <= 0" (click)="goTicketConfirmar()">
-            Revisar orden
-          </button>
         } @else {
           <div class="op-ficha-head">
             <button class="op-back" (click)="goTicketForm()">← Volver</button>
@@ -1010,6 +1112,61 @@ const FONDOS: FondoCard[] = [
        de cotizaciones.component.css (grid de N columnas + gap). */
     .op-acciones-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 
+    /* Sección 2 de Home (izquierda: Dólares+Referencia / derecha: Destacados)
+       — mismo mecanismo de grilla que .mosaic/.col de cotizaciones.component.css:
+       grid de 2 columnas iguales + gap 14px, align-items:start para que cada
+       columna mida su propio contenido sin estirarse a la altura de la otra.
+       Fondos NO vive acá adentro (ver .op-card.op-fondos más abajo, ahora a
+       lo ancho completo fuera del grid): con Fondos como 3ra card de la
+       columna derecha, esa columna quedaba más alta que la izquierda y el
+       resto de Dólares+Referencia quedaba como hueco vacío al lado de
+       Fondos — align-items:start no empareja alturas de columna, así que la
+       columna corta simplemente termina antes y deja ese espacio libre
+       dentro del grid. Sacar Fondos del grid (bloque aparte en flujo normal)
+       es más simple que balancear alturas o pedirle a Fondos que ocupe
+       ambas columnas con column-span. Colapsa a 1 columna en el mismo
+       breakpoint ≤1000px (ver @media más abajo); en ese ancho el grid ya
+       queda 1 columna, así que Dólares/Referencia/Destacados/Fondos caen en
+       el mismo orden vertical de siempre.
+       align-items es stretch (default, sin declarar acá) en vez de :start:
+       medido con getBoundingClientRect, con :start la columna izquierda
+       (Dólares 99px + gap 14px + Referencia 142px = 255px) quedaba más baja
+       que Destacados (239px con 4 movers reales), 16px de diferencia — con
+       :start el grid nunca estira ninguna columna a la altura de la fila,
+       cada una mide sólo su propio contenido. Con stretch (default) ambas
+       columnas terminan en la altura de la más alta del grid; .op-home-col
+       es un div simple sin padding/borde propio, así que el stretch del
+       grid alcanza sin necesitar height:100% adicional (a diferencia de
+       Ticket, donde .op-card sí tiene padding propio — ver op-book-fill). */
+    .op-home-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
+    .op-home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    /* Sección de 2 columnas de Ficha (rango+gráfico / Puntas) — mismo
+       mecanismo de grilla que .op-home-mosaic/.op-home-col de arriba, que a
+       su vez replica .mosaic/.col de cotizaciones.component.css: grid de 2
+       columnas iguales + gap 14px, align-items:start para que cada columna
+       mida su propio contenido. Mismo breakpoint ≤1000px que Home (ver
+       @media más abajo). */
+    .op-ficha-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); align-items: start; gap: 14px; max-width: 100%; }
+    .op-ficha-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    /* Ticket — Puntas + Orden en 2 columnas, mismo mecanismo que
+       .op-home-mosaic/.op-ficha-mosaic: grid de 2 columnas iguales + gap
+       14px. align-items:stretch (default, sin declarar acá) en vez de
+       :start — con :start cada card mide su propio contenido y Puntas
+       (2 cajas Compra/Venta) queda más baja que Orden (Precio/Plazo +
+       Cantidad/Monto); con stretch (default) ambas cards ocupan la altura
+       de fila del grid (la más alta = Orden), lo que le da a op-card.op-book
+       una altura real de la que .op-book-row-stacked puede tomar el 100%
+       (ver .op-card.op-book/.op-book-row-stacked/.ob-side más abajo) para
+       que Compra/Venta repartan ese alto en partes iguales. Clase propia
+       (no se reusa .op-ficha-mosaic) porque son subvistas distintas y el
+       alcance pide no tocar Ficha. Colapsa a 1 columna en el mismo
+       breakpoint ≤1000px que el resto de los mosaicos (ver @media más
+       abajo) — ahí Puntas queda arriba y Orden abajo, con su alto natural
+       (la cadena stretch/100% de abajo no se activa fuera del grid). */
+    .op-ticket-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
+
     /* Acciones en mobile: cards apiladas en vez de las tablas de 4 columnas
        (Símbolo/Precio/Variación/Comprar no entran en ≤760px — mismo .op-table-wrap
        que usa Panel, así que en vez de tocar esa clase compartida se oculta
@@ -1242,6 +1399,29 @@ const FONDOS: FondoCard[] = [
       flex: 1; display: flex; flex-direction: column; gap: 4px;
       padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line);
     }
+    /* Cadena de alturas para que Puntas (Ticket) llene exactamente el alto
+       de Orden — SOLO afecta la instancia que combina op-card.op-book con
+       la clase adicional op-book-fill (ver template); Ficha usa
+       "op-card op-book" sin op-book-fill y queda con su height:auto de
+       siempre, sin cambios.
+       1) .op-card.op-book-fill: flex-column + height:100% — el grid padre
+          (.op-ticket-mosaic, align-items:stretch por default) ya estira esta
+          card a la altura de fila (igual a Orden); height:100% + flex-column
+          hace que su contenido interno (título + fila de Compra/Venta) pueda
+          repartirse ese alto en vez de quedarse en su alto natural.
+       2) .op-book-row.op-book-row-stacked: flex:1 además de flex-direction:
+          column (ya estaba) — toma el espacio restante de op-book-fill
+          (descontado el título) para que sea ese contenedor, no el título,
+          el que efectivamente mida el 100% repartible.
+       3) .ob-side dentro de esa combinación: flex:1 1 0 (en vez del flex:1
+          genérico de la regla de arriba, que sólo garantiza ancho igual en
+          el layout lado-a-lado de Ficha) — con flex-basis:0 cada caja
+          Compra/Venta arranca sin alto de contenido como base y crece en
+          partes EXACTAMENTE iguales para llenar op-book-row-stacked. */
+    .op-card.op-book-fill { display: flex; flex-direction: column; height: 100%; }
+    .op-book-row.op-book-row-stacked { flex-direction: column; }
+    .op-book-fill .op-book-row.op-book-row-stacked { flex: 1; }
+    .op-book-fill .op-book-row.op-book-row-stacked > .ob-side { flex: 1 1 0; }
     .ob-buy { border-color: var(--accent-sf); background: var(--accent-sf); }
     .ob-sell { border-color: var(--warn-line); background: var(--warn-bg); }
     .ob-lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); }
@@ -1267,10 +1447,27 @@ const FONDOS: FondoCard[] = [
        frente al resto de la card Orden — Ficha/Paso 2 conservan 46px. */
     .op-buy-sticky-sm { height: 42px; }
 
-    /* Ticket — card "Orden" (Precio/Plazo/Cantidad/Monto), separada de Puntas */
+    /* Ticket — card "Orden" (Precio/Plazo/Cantidad/Monto/Revisar orden) */
     .op-order-body { display: flex; flex-direction: column; gap: 18px; }
+    /* "Revisar orden" ahora vive dentro de op-order-body en vez de a lo
+       ancho completo de la pantalla (ver template) — reusa .op-buy-sticky
+       por el estilo visual (color, tipografía, radio), pero position:sticky
+       ya no tiene sentido acá: haría que el botón se despegue del borde/
+       fondo de la card op-order al hacer scroll y flote sobre el resto de
+       la pantalla sin el marco de la card detrás, en vez de quedar como
+       cierre visual del bloque (justo lo que se pidió evitar). static +
+       margin-top:auto (op-order-body es flex-column) lo deja pegado al
+       final de la card en flujo normal, sin escapar del contenedor. */
+    .op-order-body > .op-buy-sticky { position: static; margin-top: auto; }
 
-    /* Ticket — fila de selects (Precio / Precio límite / Plazo) */
+    /* Ticket — fila de 2 columnas reusada por Precio/Plazo de liquidación Y
+       por Cantidad/Monto a invertir (misma .op-order-body, 2 filas
+       .op-ticket-row seguidas): flex + gap 14px + flex-wrap, cada .op-field
+       con min-width 140px. Al no forzarse un grid fijo, en anchos angostos
+       (contenido de card por debajo de ~294px, dos columnas de 140px + gap)
+       cada fila apila sus 2 campos en 1 columna sola, mismo comportamiento
+       que ya tenía Precio/Plazo — no hace falta una media query nueva para
+       el breakpoint mobile. */
     .op-ticket-row { display: flex; gap: 14px; flex-wrap: wrap; }
     .op-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 140px; }
     .of-lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); }
@@ -1377,6 +1574,13 @@ const FONDOS: FondoCard[] = [
       display: flex; flex-direction: column; align-items: center;
       padding: 40px 20px; color: var(--ink-3); font-size: 13px; text-align: center;
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
+    }
+
+    /* Mismo breakpoint que .mosaic de cotizaciones.component.css (1000px). */
+    @media (max-width: 1000px) {
+      .op-home-mosaic { grid-template-columns: 1fr; }
+      .op-ficha-mosaic { grid-template-columns: 1fr; }
+      .op-ticket-mosaic { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 760px) {
