@@ -13,7 +13,8 @@ import {
   INSTRUMENT_PILLS,
   DolarStripRow,
   MoverRow,
-  FondoCard,
+  FondoRow,
+  FONDO_TIPO_LABEL,
   CurrencyPillId,
   CURRENCY_PILLS,
   PanelSubTabDef,
@@ -43,14 +44,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
   { label: 'CCL', value: 1432 },
 ];
 
-// Fondos del Home — hardcodeados, sin fetch todavía.
-// TODO: /api/v2/Titulos/FCI.
-const FONDOS: FondoCard[] = [
-  { name: 'Liquidez Pesos', category: 'Money Market', detail: 'TNA 28,4 %' },
-  { name: 'Renta Fija Pesos', category: 'Renta Fija ARS', detail: 'TNA 31,2 %' },
-  { name: 'Renta Fija Dólares', category: 'Renta Fija USD', detail: 'TNA 6,8 %' },
-  { name: 'Renta Variable', category: 'Acciones', detail: '+18,3 % (12 m)' },
-];
+
 
 @Component({
   selector: 'app-operar',
@@ -66,108 +60,15 @@ const FONDOS: FondoCard[] = [
              cotizaciones.component.ts (.mosaic), colapsa a 1 columna en
              mobile ≤760px como el resto de la app.
 
-             PREGUNTA ABIERTA (sin resolver acá, ver PROMPT 2): con esta
-             sección arriba de todo, no está claro qué debería pasar con el
-             buscador + pills de instrumento de más abajo — ¿el buscador
-             debería filtrar esta tabla en vez de abrir un dropdown de
-             resultados? ¿la pill "Acciones" queda redundante al ya estar
-             todo listado acá? Se dejaron intactos, en su posición original,
-             hasta que se defina con producto. -->
-        <div class="op-card op-acciones">
-          <h3>Acciones</h3>
-          @if (accionesAll().length) {
-            <div class="op-acciones-grid">
-              <div class="op-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Símbolo</th>
-                      <th class="num">Precio</th>
-                      <th class="num">Variación</th>
-                      <th class="op-th-accion"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of accionesColLeft(); track r.symbol) {
-                      <tr (click)="selectSymbol(r)">
-                        <td>
-                          <span class="opt-sym">{{ r.symbol }}</span>
-                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                        </td>
-                        <td class="num">{{ fmt(price(r)) }}</td>
-                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                        </td>
-                        <td class="op-td-accion">
-                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                            Comprar
-                          </button>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              <div class="op-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Símbolo</th>
-                      <th class="num">Precio</th>
-                      <th class="num">Variación</th>
-                      <th class="op-th-accion"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of accionesColRight(); track r.symbol) {
-                      <tr (click)="selectSymbol(r)">
-                        <td>
-                          <span class="opt-sym">{{ r.symbol }}</span>
-                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                        </td>
-                        <td class="num">{{ fmt(price(r)) }}</td>
-                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                        </td>
-                        <td class="op-td-accion">
-                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                            Comprar
-                          </button>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="op-acciones-cards">
-              @for (r of accionesPreviewMobile(); track r.symbol) {
-                <div class="op-acc-card" (click)="selectSymbol(r)">
-                  <div class="op-acc-id">
-                    <span class="opt-sym">{{ r.symbol }}</span>
-                    @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                  </div>
-                  <div class="op-acc-row">
-                    <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
-                    <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                      {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                    </span>
-                    <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                      Comprar
-                    </button>
-                  </div>
-                </div>
-              }
-              <button class="op-acc-verall" type="button" (click)="selectInstrument('acciones')">
-                Ver todas las Acciones
-              </button>
-            </div>
-          } @else {
-            <div class="op-empty">Cargando acciones…</div>
-          }
-        </div>
-
+             Pedido de Elio: buscador + toggles unificados en una sola línea,
+             arriba de este contenedor (ver .op-home-head más abajo, ahora
+             ubicado antes de esta card) — al clickear un toggle, este
+             contenedor cambia dinámicamente al instrumento elegido
+             (selectHomeInstrument, ver comentario junto al signal
+             homeInstrument()). El buscador sigue abriendo su propio
+             dropdown de resultados (cruza Acciones+Cedears, ver
+             searchResults) — no filtra este contenedor, son mecanismos
+             distintos y no se pidió unificarlos. -->
         <div class="op-home-head">
           <div class="op-search-wrap">
             <input
@@ -197,6 +98,21 @@ const FONDOS: FondoCard[] = [
             }
           </div>
 
+          <!-- Toggles de tipo de instrumento: ya NO navegan a Panel (ese
+               comportamiento sigue vivo en selectInstrument(), usado por el
+               botón "Ver todo" de mobile más abajo) — ahora cambian
+               homeInstrument(), que es lo que lee el contenedor de Acciones
+               de acá abajo. .op-pill.on ya existe como patrón "activo"
+               (mismo look que .op-rango-pill.on/.op-cur-pill.on). -->
+          <div class="op-pills">
+            @for (p of pills; track p.id) {
+              <button class="op-pill" type="button" [class.on]="homeInstrument() === p.id" (click)="selectHomeInstrument(p.id)">
+                <span class="op-pill-circle">{{ p.initials }}</span>
+                <span class="op-pill-label">{{ p.label }}</span>
+              </button>
+            }
+          </div>
+
           <button class="op-cartera-btn op-subtab on" type="button" (click)="goCartera()" title="Cartera" aria-label="Ver cartera">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
             <span>Cartera</span>
@@ -206,12 +122,98 @@ const FONDOS: FondoCard[] = [
           </button>
         </div>
 
-        <div class="op-pills">
-          @for (p of pills; track p.id) {
-            <button class="op-pill" (click)="selectInstrument(p.id)">
-              <span class="op-pill-circle">{{ p.initials }}</span>
-              <span class="op-pill-label">{{ p.label }}</span>
-            </button>
+        <div class="op-card op-acciones">
+          <h3>{{ homeInstrumentLabel() }}</h3>
+          @if (homeRowsAll().length) {
+            <div class="op-acciones-grid">
+              <div class="op-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Símbolo</th>
+                      <th class="num">Precio</th>
+                      <th class="num">Variación</th>
+                      <th class="op-th-accion"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of homeColLeft(); track r.symbol) {
+                      <tr (click)="selectSymbol(r)">
+                        <td>
+                          <span class="opt-sym">{{ r.symbol }}</span>
+                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                        </td>
+                        <td class="num">{{ fmt(price(r)) }}</td>
+                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                        </td>
+                        <td class="op-td-accion">
+                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                            Comprar
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <div class="op-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Símbolo</th>
+                      <th class="num">Precio</th>
+                      <th class="num">Variación</th>
+                      <th class="op-th-accion"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of homeColRight(); track r.symbol) {
+                      <tr (click)="selectSymbol(r)">
+                        <td>
+                          <span class="opt-sym">{{ r.symbol }}</span>
+                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                        </td>
+                        <td class="num">{{ fmt(price(r)) }}</td>
+                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                        </td>
+                        <td class="op-td-accion">
+                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                            Comprar
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="op-acciones-cards">
+              @for (r of homePreviewMobile(); track r.symbol) {
+                <div class="op-acc-card" (click)="selectSymbol(r)">
+                  <div class="op-acc-id">
+                    <span class="opt-sym">{{ r.symbol }}</span>
+                    @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                  </div>
+                  <div class="op-acc-row">
+                    <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
+                    <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                      {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                    </span>
+                    <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                      Comprar
+                    </button>
+                  </div>
+                </div>
+              }
+              <button class="op-acc-verall" type="button" (click)="selectInstrument(homeInstrument())">
+                Ver todo en {{ homeInstrumentLabel() }}
+              </button>
+            </div>
+          } @else {
+            <div class="op-empty">Cargando {{ homeInstrumentLabel().toLowerCase() }}…</div>
           }
         </div>
 
@@ -237,7 +239,16 @@ const FONDOS: FondoCard[] = [
              adicional en .op-home-col (es un div simple sin padding/borde
              propio, el stretch del grid ya alcanza). Mismo mecanismo que se
              usó para igualar Puntas/Orden en Ticket.
-             Ninguna card se reescribe: se reubican tal cual estaban. -->
+             Ninguna card se reescribe: se reubican tal cual estaban.
+
+             .op-home-highlight (wrapper NUEVO, puramente visual): Elio pidió
+             "más notoriedad" para este bloque completo en su wireframe. Es
+             sólo un contenedor extra alrededor de .op-home-mosaic — el grid
+             de 2 columnas y la simetría de altura ya resuelta arriba quedan
+             intactos, no se tocó nada dentro. Ver CSS de .op-home-highlight
+             para el detalle de la barra de acento + sombra (tokens
+             existentes, ver ui-kit.md regla #4). -->
+        <div class="op-home-highlight">
         <div class="op-home-mosaic">
           <div class="op-home-col">
             <div class="op-card op-dolares">
@@ -254,8 +265,21 @@ const FONDOS: FondoCard[] = [
 
             <div class="op-card op-ref">
               <h3>Referencia</h3>
+              <!-- Referencia: sólo AL30 navega a Ficha (selectSymbol, mismo
+                   mecanismo que Destacados/Acciones) — es un símbolo real
+                   con PanelRow cacheado (ver al30() más abajo), no una
+                   placeholder. Caución y Plazo fijo NO tienen ningún destino
+                   ni lógica pensada más allá del TODO genérico que había acá
+                   (son tasas informativas hardcodeadas, no instrumentos
+                   operables con Ficha propia) — se dejan como filas no
+                   interactivas: sin chevron, sin cursor pointer (ver
+                   .op-ref-row-static más abajo), en vez de simular una
+                   navegación que no existe. Plazo fijo (última fila) ocupa
+                   el ancho completo de su fila del grid de 2 columnas (ver
+                   .op-ref-row:last-child, grid-column:1/-1) para no dejar
+                   hueco vacío al lado. -->
               <div class="op-ref-list">
-                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                <button class="op-ref-row" type="button" (click)="selectSymbol({ symbol: 'AL30' })">
                   <span class="orr-lbl">AL30</span>
                   <span class="orr-right">
                     @if (al30(); as b) {
@@ -270,24 +294,22 @@ const FONDOS: FondoCard[] = [
                   </span>
                   <span class="orr-chevron">›</span>
                 </button>
-                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                <div class="op-ref-row op-ref-row-static">
                   <span class="orr-lbl">Caución</span>
                   <span class="orr-right">
                     <span class="orr-val num">TNA 32,5 %</span>
                     <span class="ori-chip warn">estimado</span>
                     <!-- TODO: /api/v2/operar/CPD/Comisiones para tasa real -->
                   </span>
-                  <span class="orr-chevron">›</span>
-                </button>
-                <button class="op-ref-row" type="button" (click)="onRefRowClick()">
+                </div>
+                <div class="op-ref-row op-ref-row-static">
                   <span class="orr-lbl">Plazo fijo</span>
                   <span class="orr-right">
                     <span class="orr-val num">TNA 28,0 %</span>
                     <span class="ori-chip warn">estimado</span>
                     <!-- TODO: fuente de tasas de plazo fijo -->
                   </span>
-                  <span class="orr-chevron">›</span>
-                </button>
+                </div>
               </div>
             </div>
           </div>
@@ -314,18 +336,43 @@ const FONDOS: FondoCard[] = [
             }
           </div>
         </div>
+        </div>
 
+        <!-- Fondos: datos reales vía api/iol/fondos.js → /api/v2/Titulos/FCI
+             (docs/api-iol.md §2.7, ver fondosRows()/loadFondos()) — ya NO es
+             la constante hardcodeada anterior. Sin fallback real posible:
+             data912 no cubre FCIs (ver market.config.ts), así que ante error
+             se muestra un estado explícito en vez de inventar un valor. El
+             detalle mostrado es variacionAnual (dato real más comparable
+             entre fondos de distinto perfil, ver FondoRow) — a diferencia
+             del hardcodeo anterior, TODOS los fondos reales traen
+             variación con signo (no hay ningún campo "TNA" en la respuesta
+             real de IOL), así que el color por signo aplica a los 4+ fondos
+             por igual, no sólo a uno. Semántica de color según ui-kit.md
+             §5.3: verde --pos = ganancia, rojo --neg = pérdida, nunca color
+             hardcodeado. Sin interacción nueva (no había ningún click
+             handler previo, ver diagnóstico — no se agrega ninguno acá). -->
         <div class="op-card op-fondos">
           <h3>Fondos</h3>
-          <div class="op-fondos-grid">
-            @for (f of fondos; track f.name) {
-              <div class="op-fondo">
-                <span class="of-name">{{ f.name }}</span>
-                <span class="of-cat">{{ f.category }}</span>
-                <span class="of-detail num">{{ f.detail }}</span>
-              </div>
-            }
-          </div>
+          @if (fondosLoading()) {
+            <div class="op-empty">Cargando fondos…</div>
+          } @else if (fondosError()) {
+            <div class="op-empty">Fondos no disponible.</div>
+          } @else if (fondosRows().length) {
+            <div class="op-fondos-grid">
+              @for (f of fondosRows(); track f.symbol) {
+                <div class="op-fondo">
+                  <span class="of-name">{{ f.name }}</span>
+                  <span class="of-cat">{{ fondoTipoLabel(f.tipoFondo) }}</span>
+                  <span class="of-detail num" [class.pos]="f.variacionAnual >= 0" [class.neg]="f.variacionAnual < 0">
+                    {{ f.variacionAnual >= 0 ? '+' : '' }}{{ fmt(f.variacionAnual) }} % (12 m)
+                  </span>
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="op-empty">Fondos no disponible.</div>
+          }
         </div>
       } @else if (subview() === 'panel') {
         <div class="op-panel-head">
@@ -1141,6 +1188,40 @@ const FONDOS: FondoCard[] = [
     .op-home-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
     .op-home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
+    /* Bloque destacado (Dólares+Referencia+Destacados) — pedido de Elio,
+       "más notoriedad" para todo el bloque junto, no cada card por separado.
+       Wrapper puramente visual alrededor de .op-home-mosaic: NO toca el
+       grid interno, el gap entre columnas, ni la simetría de altura ya
+       resuelta arriba (align-items:stretch sigue en .op-home-mosaic, sin
+       cambios) — .op-home-highlight es un contenedor extra, no reemplaza a
+       .op-home-mosaic.
+       Tratamiento (dentro de los tokens existentes, ver ui-kit.md):
+       - Barra de acento de 3px en el borde superior con --accent (único
+         azul del sistema, #2563eb) — mismo mecanismo que .alert-bar/
+         .freeze-bar (ui-kit.md regla #4, "zona destacada"), pero como
+         border-top en vez de border-left: el bloque es más ancho que alto
+         (2 columnas lado a lado), una barra superior se nota más que una
+         lateral de 3px en un contenedor tan ancho.
+       - padding-top compensa el espacio que ocupaba antes el border-top
+         (evita que el contenido salte al agregar la barra).
+       - border + border-radius (--line/--r-lg) para que la barra de acento
+         tenga un borde que la enmarque, mismo radio que ya usan las cards.
+       - box-shadow: var(--shadow) (la sombra de doble capa ya definida en
+         :root, reservada hoy para "menús flotantes") — no es un glow (sin
+         color, sin blur exagerado), es la MISMA variable que ya existe,
+         simplemente aplicada acá para despegar el bloque del fondo y de
+         Acciones/Fondos alrededor, tal como se pidió. Las cards internas
+         siguen con su --shadow-sm de siempre (sin cambios), así que hay
+         jerarquía visual: sombra chica por card, sombra más marcada para
+         todo el bloque. */
+    .op-home-highlight {
+      border-top: 3px solid var(--accent);
+      border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow);
+      padding: 13px 14px 14px;
+    }
+
     /* Sección de 2 columnas de Ficha (rango+gráfico / Puntas) — mismo
        mecanismo de grilla que .op-home-mosaic/.op-home-col de arriba, que a
        su vez replica .mosaic/.col de cotizaciones.component.css: grid de 2
@@ -1213,8 +1294,9 @@ const FONDOS: FondoCard[] = [
     .op-acc-verall:hover { border-color: var(--line-2); }
     .op-acc-verall:active { transform: translateY(1px); }
 
-    /* Referencia — grilla de 2 columnas. Bleed horizontal a los bordes de la
-       card (padding de .op-card en negativo) para que el hover llene la fila. */
+    /* Referencia — grilla de 2 columnas (AL30 + Caución en la fila de
+       arriba). Bleed horizontal a los bordes de la card (padding de
+       .op-card en negativo) para que el hover llene la fila. */
     .op-ref-list { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 8px; margin: 0 -16px; }
     .op-ref-row {
       display: flex; align-items: center; gap: 10px; width: 100%;
@@ -1223,8 +1305,18 @@ const FONDOS: FondoCard[] = [
       font-family: var(--font-ui); color: var(--ink);
       transition: background .14s;
     }
-    .op-ref-row:last-child { border-bottom: 0; }
+    /* Plazo fijo (3ra fila, última): con sólo 3 filas en un grid de 2
+       columnas, sin esto quedaba solo en la 2da fila ocupando 1 columna y
+       dejando un hueco vacío a la derecha. grid-column:1/-1 lo estira a las
+       2 columnas de esa fila sin afectar AL30/Caución (fila de arriba, que
+       sigue en su columna 1fr normal). */
+    .op-ref-row:last-child { border-bottom: 0; grid-column: 1 / -1; }
     .op-ref-row:hover { background: var(--accent-sf); }
+    /* Caución/Plazo fijo (ver template op-ref-row-static): sin destino de
+       navegación real, no deben parecer clickeables — sin cursor pointer ni
+       hover de fondo (a diferencia de AL30, que sí navega a Ficha). */
+    .op-ref-row-static { cursor: default; }
+    .op-ref-row-static:hover { background: transparent; }
     .orr-lbl {
       font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
       color: var(--ink-3); flex-shrink: 0;
@@ -1257,6 +1349,14 @@ const FONDOS: FondoCard[] = [
     .of-name { font-size: 13px; font-weight: 600; color: var(--ink); }
     .of-cat { font-size: 11px; color: var(--ink-3); }
     .of-detail { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-top: 2px; }
+    /* Todos los fondos reales traen variacionAnual con signo (ver FondoRow/
+       api/iol/fondos.js) — a diferencia del hardcodeo anterior (donde sólo
+       "Renta Variable" tenía signo y las otras 3 eran TNA sin P&L), acá el
+       color por signo aplica a cualquier fondo según su valor real. Mismo
+       par de tokens que usa .op-table-wrap td.num.pos/.neg (Panel) para el
+       mismo significado. */
+    .of-detail.pos { color: var(--pos); }
+    .of-detail.neg { color: var(--neg); }
 
     /* Panel — header + buscador propio */
     .op-panel-head { display: flex; align-items: center; gap: 12px; }
@@ -1552,8 +1652,15 @@ const FONDOS: FondoCard[] = [
       cursor: pointer; text-decoration: underline;
     }
 
-    .op-home-head { display: flex; align-items: flex-start; gap: 10px; }
-    .op-home-head .op-search-wrap { flex: 1; }
+    /* op-home-head: buscador + toggles de instrumento + botón Cartera en una
+       sola fila (pedido de Elio) — antes sólo tenía buscador+Cartera, los
+       toggles vivían en su propia fila aparte más abajo. flex-wrap:wrap para
+       que en anchos angostos (antes del breakpoint mobile explícito de
+       abajo) los toggles puedan bajar de línea sin romper el buscador ni el
+       botón Cartera, que se mantienen flex-shrink:0/flex:1 como ya estaban. */
+    .op-home-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+    .op-home-head .op-search-wrap { flex: 1 1 220px; min-width: 0; }
+    .op-home-head .op-pills { flex-shrink: 0; }
     .op-cartera-btn { flex-shrink: 0; position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; }
     .op-cartera-badge {
       position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
@@ -1584,6 +1691,12 @@ const FONDOS: FondoCard[] = [
     }
 
     @media (max-width: 760px) {
+      /* op-home-head en 1 columna: buscador a ancho completo, luego toggles,
+         luego Cartera — en vez de la fila única de desktop, que en mobile
+         (buscador flex-basis 220px + 5 pills + botón Cartera) no entraría y
+         forzaría wraps desprolijos a mitad de elemento. */
+      .op-home-head { flex-direction: column; align-items: stretch; }
+      .op-home-head .op-search-wrap { flex: 1 1 auto; }
       .op-dolares-row { flex-direction: column; }
       .op-dollar-item { padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
       .op-dollar-item:not(:first-child) { padding-top: 8px; }
@@ -1609,7 +1722,6 @@ export class OperarComponent implements OnInit {
 
   pills: InstrumentPill[] = INSTRUMENT_PILLS;
   dolarStrip: DolarStripRow[] = DOLAR_STRIP;
-  fondos: FondoCard[] = FONDOS;
   currencyPills = CURRENCY_PILLS;
   chartRangos = CHART_RANGOS;
 
@@ -1622,6 +1734,15 @@ export class OperarComponent implements OnInit {
   cedearsRows = signal<CedearRow[]>([]);
   bonosRows = signal<PanelRow[]>([]);
   letrasRows = signal<PanelRow[]>([]);
+  // Fondos (FCI) — datos reales vía api/iol/fondos.js (ver loadFondos()).
+  // Fetch propio (no entra en el forkJoin de loadHome porque es un endpoint
+  // sin relación con acciones/cedears/bonos, y con manejo de error propio:
+  // sin fallback real posible, ver template op-fondos). fondosLoading
+  // arranca en true para mostrar "Cargando…" desde el primer render, no un
+  // estado vacío falso antes de que la request termine.
+  fondosRows = signal<FondoRow[]>([]);
+  fondosLoading = signal(true);
+  fondosError = signal(false);
   onsRows = signal<PanelRow[]>([]);
   // Panel de Acciones en US$ (mapea a /api/iol/panel?id=usa) — único caso con
   // fuente real fuera de AR$, ver docs/api-iol.md §3.1.
@@ -1711,6 +1832,7 @@ export class OperarComponent implements OnInit {
     if (this.subview() === 'home' && !this.homeLoaded) {
       this.homeLoaded = true;
       this.loadHome();
+      this.loadFondos();
     }
   });
 
@@ -1739,16 +1861,30 @@ export class OperarComponent implements OnInit {
   // consume Panel para id==='acciones' (accionesRows, ver loadHome), sin
   // recorte Líder/General — acá se listan completas, ordenadas por símbolo,
   // repartidas en 2 columnas (ver op-acciones-grid en el template).
-  accionesAll = computed<PanelRow[]>(() =>
-    [...this.accionesRows()].sort((a, b) => String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')))
-  );
-  accionesColLeft = computed<PanelRow[]>(() => this.accionesAll().slice(0, Math.ceil(this.accionesAll().length / 2)));
-  accionesColRight = computed<PanelRow[]>(() => this.accionesAll().slice(Math.ceil(this.accionesAll().length / 2)));
-  // Preview mobile de Acciones (PROMPT 9): primeras 8, mismo orden/fuente que
-  // accionesAll (alfabético, sin criterio de "destacadas" ni ordenar por
+  //
+  // Toggle de instrumento del contenedor de Home (pedido de Elio): qué
+  // instrumento muestra la card de arriba de Home (antes fija en
+  // "Acciones", ver selectHomeInstrument). Reusa exactamente la misma fuente
+  // cacheada que ya lee panelRawRows para Panel — nada de fetch/datos nuevos.
+  homeInstrument = signal<InstrumentId>('acciones');
+  homeInstrumentLabel = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrument())?.label ?? '');
+  homeRowsAll = computed<PanelRow[]>(() => {
+    const id = this.homeInstrument();
+    const rows: PanelRow[] = id === 'cedears' ? this.cedearsRows() : (
+      id === 'bonos' ? this.bonosRows() :
+      id === 'letras' ? this.letrasRows() :
+      id === 'ons' ? this.onsRows() :
+      this.accionesRows()
+    );
+    return [...rows].sort((a, b) => String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')));
+  });
+  homeColLeft = computed<PanelRow[]>(() => this.homeRowsAll().slice(0, Math.ceil(this.homeRowsAll().length / 2)));
+  homeColRight = computed<PanelRow[]>(() => this.homeRowsAll().slice(Math.ceil(this.homeRowsAll().length / 2)));
+  // Preview mobile (PROMPT 9): primeras 8, mismo orden/fuente que
+  // homeRowsAll (alfabético, sin criterio de "destacadas" ni ordenar por
   // variación — no se pidió). Sólo se usa en .op-acciones-cards (≤760px); el
-  // desktop sigue mostrando accionesColLeft/accionesColRight completas.
-  accionesPreviewMobile = computed<PanelRow[]>(() => this.accionesAll().slice(0, 8));
+  // desktop sigue mostrando homeColLeft/homeColRight completas.
+  homePreviewMobile = computed<PanelRow[]>(() => this.homeRowsAll().slice(0, 8));
 
   // Top 4 movers por variación absoluta, 100% real sobre acciones+cedears cacheados.
   destacados = computed<MoverRow[]>(() => {
@@ -1999,6 +2135,33 @@ export class OperarComponent implements OnInit {
     });
   }
 
+  // Fondos (FCI): fetch propio, separado de loadHome() — sin fallback real
+  // posible (data912 no cubre FCIs, ver comentario del template op-fondos),
+  // así que un error acá se comunica con fondosError() en vez de dejar
+  // fondosRows() vacío indistinguible de "todavía cargando" o "0 fondos".
+  private loadFondos() {
+    this.fondosLoading.set(true);
+    this.fondosError.set(false);
+    this.http.get<FondoRow[]>('/api/iol/fondos').pipe(
+      catchError(() => of(null))
+    ).subscribe((rows) => {
+      this.fondosLoading.set(false);
+      if (!Array.isArray(rows)) {
+        this.fondosError.set(true);
+        return;
+      }
+      this.fondosRows.set(rows);
+    });
+  }
+
+  // Label legible del tipoFondo real de IOL (ver FONDO_TIPO_LABEL) — fallback
+  // al valor crudo si aparece algún tipoFondo no mapeado todavía, en vez de
+  // ocultarlo.
+  fondoTipoLabel(tipoFondo: string | null): string {
+    if (!tipoFondo) return '—';
+    return FONDO_TIPO_LABEL[tipoFondo] ?? tipoFondo;
+  }
+
   price(row: PanelRow | CedearRow | null | undefined): number {
     const px = +(row as any)?.px_bid;
     if (px > 0) return px;
@@ -2056,6 +2219,17 @@ export class OperarComponent implements OnInit {
     this.panelCurrency.set('ars');
     this.panelSort.set({ column: 'symbol', dir: 'asc' });
     this.panelSubTab.set(id === 'bonos' ? 'usd' : 'lider');
+    this.ensurePanelData(id);
+  }
+
+  // Toggle de instrumento del contenedor de Home (ver homeRowsAll/pedido de
+  // Elio): a diferencia de selectInstrument() NO navega a Panel, cambia el
+  // instrumento mostrado sin salir de Home. Reusa ensurePanelData() para el
+  // mismo fetch lazy de Letras/ONs que ya usa Panel (cacheado en
+  // lazyFetched, nunca se re-fetchea) — Acciones/Cedears/Bonos ya vienen
+  // precargados por loadHome().
+  selectHomeInstrument(id: InstrumentId) {
+    this.homeInstrument.set(id);
     this.ensurePanelData(id);
   }
 

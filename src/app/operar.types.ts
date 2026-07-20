@@ -49,13 +49,37 @@ export interface MoverRow {
   pctChange: number;
 }
 
-// Card de Fondos del Home — hardcodeada en esta etapa.
-// TODO: /api/v2/Titulos/FCI.
-export interface FondoCard {
+// Fila de FCI (fondo común de inversión) real vía api/iol/fondos.js →
+// /api/v2/Titulos/FCI (docs/api-iol.md §2.7). Reemplaza al antiguo FondoCard
+// hardcodeado. Forma propia (no CedearRow/PanelRow): un FCI no tiene libro
+// de puntas, su "precio" es el valor cuota y su variación relevante es la
+// anual, no una variación diaria de mercado abierto — ver mapRow en el
+// proxy para el mapeo completo de campos reales (la doc no documentaba la
+// forma de la respuesta).
+export interface FondoRow {
+  symbol: string;
   name: string;
-  category: string;
-  detail: string;
+  tipoFondo: string | null;
+  moneda: string | null;
+  valorCuota: number;
+  variacionDiaria: number;
+  variacionMensual: number;
+  variacionAnual: number;
+  montoMinimo: number;
+  perfilInversor: string | null;
 }
+
+// Label legible por tipoFondo (enum real de IOL, ver FondoRow) — usado como
+// "categoría" de la card en vez de la categoría hardcodeada anterior.
+// Cualquier tipoFondo no mapeado cae al fallback (ver operar.component.ts).
+export const FONDO_TIPO_LABEL: Record<string, string> = {
+  renta_fija_pesos: 'Renta Fija Pesos',
+  renta_fija_dolares: 'Renta Fija Dólares',
+  renta_variable_pesos: 'Renta Variable',
+  renta_mixta_pesos: 'Renta Mixta',
+  plazo_fijo_pesos: 'Money Market Pesos',
+  plazo_fijo_dolares: 'Money Market Dólares',
+};
 
 // Pills de moneda del Panel. Sólo AR$ trae datos reales en todos los
 // instrumentos; US$ sólo tiene fuente real para Acciones (mapea a
