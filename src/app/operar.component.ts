@@ -1,8 +1,9 @@
-import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { forkJoin, catchError, of } from 'rxjs';
+import { forkJoin, catchError, of, timer } from 'rxjs';
 
 import { iolCedearsUrl, CedearRow } from './market.config';
 import {
@@ -34,7 +35,15 @@ import {
   TicketTipoOperacion,
   INSTRUMENTO_CHIP_LABEL,
 } from './operar.types';
-import { SimulatedMovement, loadMovements, addMovement } from './operar-storage';
+import {
+  SimulatedMovement,
+  loadMovements,
+  addMovement,
+  loadHomeColLeft,
+  loadHomeColRight,
+  saveHomeColLeft,
+  saveHomeColRight,
+} from './operar-storage';
 
 // Tira de dólares — hardcodeada, sin proxy propio todavía.
 // TODO: wire a /Cotizaciones/MEP cuando haya proxy.
@@ -53,22 +62,26 @@ const DOLAR_STRIP: DolarStripRow[] = [
   template: `
     <div class="operar">
       @if (subview() === 'home') {
-        <!-- Acciones: primer contenedor de Home, lista COMPLETA (sin recorte
-             Líder/General) con datos reales de accionesRows() — misma fuente
-             que consume Panel para id==='acciones' (ver loadHome/panelRawRows).
-             Repartida en 2 columnas, mismo mecanismo de grilla que
+        <!-- Acciones: primer contenedor de Home, con datos reales de
+             accionesRows()/cedearsRows()/etc. — misma fuente que consume
+             Panel (ver loadHome/panelRawRows). 2 columnas INDEPENDIENTES,
+             cada una con su propio dropdown de instrumento (ver
+             .op-acciones-grid más abajo) — mismo mecanismo de grilla que
              cotizaciones.component.ts (.mosaic), colapsa a 1 columna en
              mobile ≤760px como el resto de la app.
 
-             Pedido de Elio: buscador + toggles unificados en una sola línea,
-             arriba de este contenedor (ver .op-home-head más abajo, ahora
-             ubicado antes de esta card) — al clickear un toggle, este
-             contenedor cambia dinámicamente al instrumento elegido
-             (selectHomeInstrument, ver comentario junto al signal
-             homeInstrument()). El buscador sigue abriendo su propio
-             dropdown de resultados (cruza Acciones+Cedears, ver
-             searchResults) — no filtra este contenedor, son mecanismos
-             distintos y no se pidió unificarlos. -->
+             Pedido de Elio (reemplaza los toggles globales que había antes):
+             los 5 toggles de tipo de instrumento se sacaron de esta fila —
+             ya no hacen falta, la selección ahora vive en cada columna del
+             panel de Acciones vía dropdown (ver selectHomeInstrumentLeft/
+             Right). En el espacio que quedó libre va el widget "Destacados"
+             compacto (ver .op-top-mover más abajo): la acción/cedear con
+             mayor % de ganancia en tiempo real, reusando la misma fuente que
+             la card completa de Destacados de más abajo (ver topMover()) —
+             esa card NO se toca, este widget es una pieza aparte y
+             adicional. El buscador sigue abriendo su propio dropdown de
+             resultados (cruza Acciones+Cedears, ver searchResults) — no
+             filtra el panel de Acciones, son mecanismos distintos. -->
         <div class="op-home-head">
           <div class="op-search-wrap">
             <input
@@ -98,18 +111,39 @@ const DOLAR_STRIP: DolarStripRow[] = [
             }
           </div>
 
-          <!-- Toggles de tipo de instrumento: ya NO navegan a Panel (ese
-               comportamiento sigue vivo en selectInstrument(), usado por el
-               botón "Ver todo" de mobile más abajo) — ahora cambian
-               homeInstrument(), que es lo que lee el contenedor de Acciones
-               de acá abajo. .op-pill.on ya existe como patrón "activo"
-               (mismo look que .op-rango-pill.on/.op-cur-pill.on). -->
-          <div class="op-pills">
-            @for (p of pills; track p.id) {
-              <button class="op-pill" type="button" [class.on]="homeInstrument() === p.id" (click)="selectHomeInstrument(p.id)">
-                <span class="op-pill-circle">{{ p.initials }}</span>
-                <span class="op-pill-label">{{ p.label }}</span>
+          <!-- Widget compacto de Destacados, al lado del buscador. Rota
+               automáticamente entre destacados() cada 4.5s (ver
+               currentMoverIndex/rotatingMover/moverRotation en el
+               component) — antes mostraba fijo el mayor % de ganancia. Fade
+               vía [class.otm-fade] + track por symbol (Angular recrea el
+               nodo al cambiar de mover, la transición CSS de opacity corre
+               sola). Pausa en hover (pauseMoverRotation/resumeMoverRotation),
+               reanuda al sacar el cursor. Sin destino de "ver más" — para el
+               detalle completo sigue existiendo la card .op-destacados de
+               más abajo, sin cambios. -->
+          <div class="op-top-mover" (mouseenter)="pauseMoverRotation()" (mouseleave)="resumeMoverRotation()">
+            <!-- @for con track por symbol en vez de @if+as: fuerza a Angular a
+                 destruir/recrear el nodo cada vez que rotatingMover() cambia
+                 de símbolo (mismo truco que flip-num.component.ts) — así la
+                 animación CSS de entrada (otm-fade-in) vuelve a correr en
+                 cada rotación en vez de quedar estática por reusar el mismo
+                 elemento. rotatingMoverList() envuelve rotatingMover() en un
+                 array de 0 o 1 elemento para poder usar @for. -->
+            @for (m of rotatingMoverList(); track m.symbol) {
+              <button class="op-top-mover-body otm-fade-in" type="button" (click)="selectSymbol(m)" title="Ver ficha de {{ m.symbol }}">
+                <span class="otm-lbl">Destacada</span>
+                <span class="otm-sym">{{ m.symbol }}</span>
+                <span class="otm-px num">{{ fmt(m.price) }}</span>
+                <span class="otm-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
+                  {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
+                </span>
               </button>
+              <button class="op-buy-row-btn op-top-mover-buy" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="comprarDirecto(m.symbol, 'home')">
+                Comprar
+              </button>
+            } @empty {
+              <span class="otm-lbl">Destacada</span>
+              <span class="op-empty-inline op-top-mover-empty">Esperando cotizaciones…</span>
             }
           </div>
 
@@ -123,98 +157,146 @@ const DOLAR_STRIP: DolarStripRow[] = [
         </div>
 
         <div class="op-card op-acciones">
-          <h3>{{ homeInstrumentLabel() }}</h3>
-          @if (homeRowsAll().length) {
-            <div class="op-acciones-grid">
-              <div class="op-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Símbolo</th>
-                      <th class="num">Precio</th>
-                      <th class="num">Variación</th>
-                      <th class="op-th-accion"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of homeColLeft(); track r.symbol) {
-                      <tr (click)="selectSymbol(r)">
-                        <td>
-                          <span class="opt-sym">{{ r.symbol }}</span>
-                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                        </td>
-                        <td class="num">{{ fmt(price(r)) }}</td>
-                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                        </td>
-                        <td class="op-td-accion">
-                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                            Comprar
-                          </button>
-                        </td>
+          <!-- 2 columnas INDEPENDIENTES (pedido de Elio): cada una con su
+               propio dropdown de instrumento (select nativo, ver
+               .op-col-select) en vez de un h3 fijo + toggles globales. La
+               selección de cada dropdown persiste en localStorage (ver
+               selectHomeInstrumentLeft/Right en el component), mismo patrón
+               que el dropdown de horario de mercado de Arbitraje
+               (market-hours.config.ts). -->
+          <div class="op-acciones-grid">
+            <div class="op-acciones-col">
+              <select class="op-select op-col-select" [ngModel]="homeInstrumentLeft()" (ngModelChange)="selectHomeInstrumentLeft($event)" aria-label="Instrumento columna izquierda">
+                @for (p of pills; track p.id) {
+                  <option [value]="p.id">{{ p.label }}</option>
+                }
+              </select>
+              @if (homeRowsLeft().length) {
+                <div class="op-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Símbolo</th>
+                        <th class="num">Precio</th>
+                        <th class="num">Variación</th>
+                        <th class="op-th-accion"></th>
                       </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              <div class="op-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Símbolo</th>
-                      <th class="num">Precio</th>
-                      <th class="num">Variación</th>
-                      <th class="op-th-accion"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of homeColRight(); track r.symbol) {
-                      <tr (click)="selectSymbol(r)">
-                        <td>
-                          <span class="opt-sym">{{ r.symbol }}</span>
-                          @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                        </td>
-                        <td class="num">{{ fmt(price(r)) }}</td>
-                        <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                    </thead>
+                    <tbody>
+                      @for (r of homeRowsLeft(); track r.symbol) {
+                        <tr (click)="selectSymbol(r)">
+                          <td>
+                            <span class="opt-sym">{{ r.symbol }}</span>
+                            @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                          </td>
+                          <td class="num">{{ fmt(price(r)) }}</td>
+                          <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                            {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                          </td>
+                          <td class="op-td-accion">
+                            <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                              Comprar
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="op-acciones-cards">
+                  @for (r of homePreviewMobileLeft(); track r.symbol) {
+                    <div class="op-acc-card" (click)="selectSymbol(r)">
+                      <div class="op-acc-id">
+                        <span class="opt-sym">{{ r.symbol }}</span>
+                        @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                      </div>
+                      <div class="op-acc-row">
+                        <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
+                        <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
                           {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                        </td>
-                        <td class="op-td-accion">
-                          <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                            Comprar
-                          </button>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
+                        </span>
+                        <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                          Comprar
+                        </button>
+                      </div>
+                    </div>
+                  }
+                  <button class="op-acc-verall" type="button" (click)="selectInstrument(homeInstrumentLeft())">
+                    Ver todo en {{ homeInstrumentLabelLeft() }}
+                  </button>
+                </div>
+              } @else {
+                <div class="op-empty">Cargando {{ homeInstrumentLabelLeft().toLowerCase() }}…</div>
+              }
             </div>
 
-            <div class="op-acciones-cards">
-              @for (r of homePreviewMobile(); track r.symbol) {
-                <div class="op-acc-card" (click)="selectSymbol(r)">
-                  <div class="op-acc-id">
-                    <span class="opt-sym">{{ r.symbol }}</span>
-                    @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
-                  </div>
-                  <div class="op-acc-row">
-                    <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
-                    <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
-                      {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
-                    </span>
-                    <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                      Comprar
-                    </button>
-                  </div>
+            <div class="op-acciones-col">
+              <select class="op-select op-col-select" [ngModel]="homeInstrumentRight()" (ngModelChange)="selectHomeInstrumentRight($event)" aria-label="Instrumento columna derecha">
+                @for (p of pills; track p.id) {
+                  <option [value]="p.id">{{ p.label }}</option>
+                }
+              </select>
+              @if (homeRowsRight().length) {
+                <div class="op-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Símbolo</th>
+                        <th class="num">Precio</th>
+                        <th class="num">Variación</th>
+                        <th class="op-th-accion"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (r of homeRowsRight(); track r.symbol) {
+                        <tr (click)="selectSymbol(r)">
+                          <td>
+                            <span class="opt-sym">{{ r.symbol }}</span>
+                            @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                          </td>
+                          <td class="num">{{ fmt(price(r)) }}</td>
+                          <td class="num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                            {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                          </td>
+                          <td class="op-td-accion">
+                            <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                              Comprar
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
                 </div>
+
+                <div class="op-acciones-cards">
+                  @for (r of homePreviewMobileRight(); track r.symbol) {
+                    <div class="op-acc-card" (click)="selectSymbol(r)">
+                      <div class="op-acc-id">
+                        <span class="opt-sym">{{ r.symbol }}</span>
+                        @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
+                      </div>
+                      <div class="op-acc-row">
+                        <span class="op-acc-price num">{{ fmt(price(r)) }}</span>
+                        <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
+                          {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
+                        </span>
+                        <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
+                          Comprar
+                        </button>
+                      </div>
+                    </div>
+                  }
+                  <button class="op-acc-verall" type="button" (click)="selectInstrument(homeInstrumentRight())">
+                    Ver todo en {{ homeInstrumentLabelRight() }}
+                  </button>
+                </div>
+              } @else {
+                <div class="op-empty">Cargando {{ homeInstrumentLabelRight().toLowerCase() }}…</div>
               }
-              <button class="op-acc-verall" type="button" (click)="selectInstrument(homeInstrument())">
-                Ver todo en {{ homeInstrumentLabel() }}
-              </button>
             </div>
-          } @else {
-            <div class="op-empty">Cargando {{ homeInstrumentLabel().toLowerCase() }}…</div>
-          }
+          </div>
         </div>
 
         <!-- Sección 2 de Home: mosaico de 2 columnas, mismo mecanismo de grilla
@@ -241,93 +323,93 @@ const DOLAR_STRIP: DolarStripRow[] = [
              usó para igualar Puntas/Orden en Ticket.
              Ninguna card se reescribe: se reubican tal cual estaban.
 
-             .op-home-highlight (wrapper NUEVO, puramente visual): Elio pidió
-             "más notoriedad" para este bloque completo en su wireframe. Es
-             sólo un contenedor extra alrededor de .op-home-mosaic — el grid
-             de 2 columnas y la simetría de altura ya resuelta arriba quedan
-             intactos, no se tocó nada dentro. Ver CSS de .op-home-highlight
-             para el detalle de la barra de acento + sombra (tokens
-             existentes, ver ui-kit.md regla #4). -->
+             .op-home-highlight (wrapper visual): 4to intento de "más
+             notoriedad" para este bloque completo, ver historial completo
+             en el CSS de .op-home-highlight más abajo. Header propio con
+             ícono + badge "Datos clave" (reusa el patrón visual de los
+             badges "estimado" de Referencia, ver .ori-chip / nueva variante
+             .op-home-highlight-badge), más padding, y los números
+             protagonistas de adentro (Dólares/AL30/Destacados) agrandados —
+             ver reglas escopeadas ".op-home-highlight .od-val" etc. más
+             abajo, así no afectan a Ficha/Ticket que reusan las mismas
+             clases (.ori-chip en op-book-toggle, por ej.). El grid de 2
+             columnas y la simetría de altura ya resuelta en
+             .op-home-mosaic quedan intactos, no se tocó nada de esa
+             mecánica. -->
         <div class="op-home-highlight">
+          <div class="op-home-highlight-head">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8 12 14.7l-3.3-3.4L5 15"/></svg>
+            <span class="op-home-highlight-badge">Datos clave</span>
+          </div>
         <div class="op-home-mosaic">
-          <div class="op-home-col">
-            <div class="op-card op-dolares">
-              <h3>Dólares</h3>
-              <div class="op-dolares-row">
-                @for (d of dolarStrip; track d.label) {
-                  <div class="op-dollar-item">
-                    <span class="od-lbl">{{ d.label }}</span>
-                    <span class="od-val num">$ {{ fmt(d.value) }}</span>
-                  </div>
-                }
-              </div>
-            </div>
-
-            <div class="op-card op-ref">
-              <h3>Referencia</h3>
-              <!-- Referencia: sólo AL30 navega a Ficha (selectSymbol, mismo
-                   mecanismo que Destacados/Acciones) — es un símbolo real
-                   con PanelRow cacheado (ver al30() más abajo), no una
-                   placeholder. Caución y Plazo fijo NO tienen ningún destino
-                   ni lógica pensada más allá del TODO genérico que había acá
-                   (son tasas informativas hardcodeadas, no instrumentos
-                   operables con Ficha propia) — se dejan como filas no
-                   interactivas: sin chevron, sin cursor pointer (ver
-                   .op-ref-row-static más abajo), en vez de simular una
-                   navegación que no existe. Plazo fijo (última fila) ocupa
-                   el ancho completo de su fila del grid de 2 columnas (ver
-                   .op-ref-row:last-child, grid-column:1/-1) para no dejar
-                   hueco vacío al lado. -->
-              <div class="op-ref-list">
-                <button class="op-ref-row" type="button" (click)="selectSymbol({ symbol: 'AL30' })">
-                  <span class="orr-lbl">AL30</span>
-                  <span class="orr-right">
-                    @if (al30(); as b) {
-                      <span class="orr-val num">$ {{ fmt(price(b)) }}</span>
-                      <span class="ori-chip" [class.pos]="b.pct_change >= 0" [class.neg]="b.pct_change < 0">
-                        {{ b.pct_change >= 0 ? '+' : '' }}{{ fmt(b.pct_change) }}%
-                      </span>
-                    } @else {
-                      <span class="orr-val num">—</span>
-                      <span class="ori-chip">sin datos</span>
-                    }
-                  </span>
-                  <span class="orr-chevron">›</span>
-                </button>
-                <div class="op-ref-row op-ref-row-static">
-                  <span class="orr-lbl">Caución</span>
-                  <span class="orr-right">
-                    <span class="orr-val num">TNA 32,5 %</span>
-                    <span class="ori-chip warn">estimado</span>
-                    <!-- TODO: /api/v2/operar/CPD/Comisiones para tasa real -->
-                  </span>
+          <!-- Referencia (AL30/Caución/Plazo fijo) SACADA por pedido de Elio
+               — era exclusiva de este bloque (al30()/orr-*/op-ref-* no se
+               usaban en ningún otro lado, confirmado por búsqueda antes de
+               tocar; .ori-chip se reusa en Ficha op-book-toggle y esa clase
+               CSS queda intacta, sin cambios). Dólares queda sola en la
+               columna izquierda — ya no hace falta el wrapper .op-home-col
+               (era flex-column para apilar 2 cards; con 1 sola card no
+               aporta nada), .op-card.op-dolares pasa a ser directamente el
+               1er hijo del grid de 2 columnas, igual que .op-destacados. */-->
+          <div class="op-card op-dolares op-dolares-solo">
+            <h3>Dólares</h3>
+            <div class="op-dolares-row">
+              @for (d of dolarStrip; track d.label) {
+                <div class="op-dollar-item">
+                  <span class="od-lbl">{{ d.label }}</span>
+                  <span class="od-val num">$ {{ fmt(d.value) }}</span>
                 </div>
-                <div class="op-ref-row op-ref-row-static">
-                  <span class="orr-lbl">Plazo fijo</span>
-                  <span class="orr-right">
-                    <span class="orr-val num">TNA 28,0 %</span>
-                    <span class="ori-chip warn">estimado</span>
-                    <!-- TODO: fuente de tasas de plazo fijo -->
-                  </span>
-                </div>
-              </div>
+              }
             </div>
           </div>
 
           <div class="op-card op-destacados">
             <h3>Destacados</h3>
             @if (destacados().length) {
+              <!-- Layout consistente (antes: símbolo+botón arriba, precio+%
+                   sueltos abajo con otra alineación, "desprolijo" — ver
+                   pedido). Ahora 2 filas fijas en las 4 cards: .om-top
+                   (símbolo + badge de variación con flecha direccional) y
+                   .om-bottom (precio + botón Comprar) — el botón se movió
+                   de overlay absoluto arriba-a-la-derecha a inline dentro
+                   de .om-bottom, mismo nivel que el precio (mejor jerarquía:
+                   precio y acción quedan juntos, no una encima de la otra
+                   con posiciones distintas).
+                   Jerarquía interna (pedido #3): destacados() ya viene
+                   ordenado por variación — la primera card (i===0) es LA
+                   destacada, no una más de una lista plana de 4 iguales.
+                   Se le agrega .op-mover-top: padding/tipografía más
+                   grandes + barra izquierda + wash tenue en la familia
+                   pos/neg según el signo de esa card (mismos tokens
+                   semánticos que ya usa .om-chip, no un color nuevo). -->
               <div class="op-movers-grid">
-                @for (m of destacados(); track m.symbol) {
-                  <div class="op-mover" (click)="selectSymbol(m)">
-                    <span class="om-sym">{{ m.symbol }}</span>
-                    <span class="om-px num">$ {{ fmt(m.price) }}</span>
-                    <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
-                      {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
-                    </span>
-                    <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
-                      Comprar
-                    </button>
+                @for (m of destacados(); track m.symbol; let i = $index) {
+                  <div
+                    class="op-mover"
+                    [class.op-mover-top]="i === 0"
+                    [class.pos]="i === 0 && m.pctChange >= 0"
+                    [class.neg]="i === 0 && m.pctChange < 0"
+                    (click)="selectSymbol(m)"
+                  >
+                    <div class="om-top">
+                      <span class="om-sym">{{ m.symbol }}</span>
+                      <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
+                        <!-- Ícono direccional ▲/▼ (pedido #4): no hay librería de
+                             íconos en el proyecto (SVG inline es el patrón ya
+                             usado, ver .op-cartera-btn) — acá se sigue el MISMO
+                             patrón de "texto como ícono" que ya usa .orr-chevron
+                             ('›'), sin agregar dependencias. Hereda el color del
+                             chip (currentColor), no un hex nuevo. -->
+                        <span class="om-chip-arrow">{{ m.pctChange >= 0 ? '▲' : '▼' }}</span>
+                        {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
+                      </span>
+                    </div>
+                    <div class="om-bottom">
+                      <span class="om-px num">$ {{ fmt(m.price) }}</span>
+                      <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
+                        Comprar
+                      </button>
+                    </div>
                   </div>
                 }
               </div>
@@ -1108,7 +1190,16 @@ const DOLAR_STRIP: DolarStripRow[] = [
       margin: 0 0 12px; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--ink);
     }
 
-    /* Dólares — una card, 3 columnas divididas (label arriba, valor mono debajo) */
+    /* Dólares sola en la columna izquierda del bloque "Datos clave" (ver
+       .op-home-mosaic): con el grid en stretch, esta card se estira a la
+       altura de Destacados (5 movers, mucho más contenido) — sin esto
+       quedaba pegada arriba con el h3 y los 3 valores, dejando un hueco
+       vacío grande abajo. flex-column + justify-content:center reparte esa
+       altura extra centrando el bloque de valores dentro de la card entera
+       (h3 arriba fijo, .op-dolares-row centrada en el resto del alto). */
+    .op-dolares-solo { display: flex; flex-direction: column; }
+    .op-dolares-solo .op-dolares-row { flex: 1; align-items: center; }
+    /* Dólares — 3 columnas divididas (label arriba, valor mono debajo) */
     .op-dolares-row { display: flex; }
     .op-dollar-item {
       flex: 1; display: flex; flex-direction: column; gap: 3px;
@@ -1155,72 +1246,109 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .op-cart-delta.neg { background: var(--neg-bg); border-color: var(--neg-line); }
     .op-cart-delta.neg .op-cart-delta-val { color: var(--neg-strong); }
 
-    /* Acciones — 2 columnas de tabla, mismo mecanismo de grilla que .mosaic
-       de cotizaciones.component.css (grid de N columnas + gap). */
+    /* Acciones — 2 columnas INDEPENDIENTES (pedido de Elio), mismo mecanismo
+       de grilla que .mosaic de cotizaciones.component.css (grid de N
+       columnas + gap). Cada .op-acciones-col agrupa su propio dropdown +
+       tabla/cards — antes esta grilla contenía 2 .op-table-wrap directas
+       (mismo instrumento global); ahora cada columna es independiente. */
     .op-acciones-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .op-acciones-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    /* Dropdown de instrumento de cada columna: reusa la piel de .op-select
+       (mismo control ya usado en Ticket para Precio/Plazo de liquidación,
+       ver más abajo) en vez de dejar el <select> con el estilo nativo del
+       navegador — borde --line, radio --r-sm, focus ring --accent-sf, sin
+       hex hardcodeado (mismos tokens que el resto del ui-kit). NO se creó
+       una clase de piel nueva: .op-col-select acá sólo agrega layout
+       (ancho fit-content + alineación arriba de la columna), sin duplicar
+       border/color/focus — eso lo sigue dando .op-select tal cual está. Sin
+       el look de .op-pill (esa clase se reserva para el filtro de Tenencias
+       en Cartera, ver .op-cart-filter). */
+    .op-col-select { align-self: flex-start; min-width: 140px; font-weight: 600; cursor: pointer; }
 
-    /* Sección 2 de Home (izquierda: Dólares+Referencia / derecha: Destacados)
-       — mismo mecanismo de grilla que .mosaic/.col de cotizaciones.component.css:
-       grid de 2 columnas iguales + gap 14px, align-items:start para que cada
-       columna mida su propio contenido sin estirarse a la altura de la otra.
-       Fondos NO vive acá adentro (ver .op-card.op-fondos más abajo, ahora a
-       lo ancho completo fuera del grid): con Fondos como 3ra card de la
-       columna derecha, esa columna quedaba más alta que la izquierda y el
-       resto de Dólares+Referencia quedaba como hueco vacío al lado de
-       Fondos — align-items:start no empareja alturas de columna, así que la
-       columna corta simplemente termina antes y deja ese espacio libre
-       dentro del grid. Sacar Fondos del grid (bloque aparte en flujo normal)
-       es más simple que balancear alturas o pedirle a Fondos que ocupe
-       ambas columnas con column-span. Colapsa a 1 columna en el mismo
-       breakpoint ≤1000px (ver @media más abajo); en ese ancho el grid ya
-       queda 1 columna, así que Dólares/Referencia/Destacados/Fondos caen en
-       el mismo orden vertical de siempre.
-       align-items es stretch (default, sin declarar acá) en vez de :start:
-       medido con getBoundingClientRect, con :start la columna izquierda
-       (Dólares 99px + gap 14px + Referencia 142px = 255px) quedaba más baja
-       que Destacados (239px con 4 movers reales), 16px de diferencia — con
-       :start el grid nunca estira ninguna columna a la altura de la fila,
-       cada una mide sólo su propio contenido. Con stretch (default) ambas
-       columnas terminan en la altura de la más alta del grid; .op-home-col
-       es un div simple sin padding/borde propio, así que el stretch del
-       grid alcanza sin necesitar height:100% adicional (a diferencia de
-       Ticket, donde .op-card sí tiene padding propio — ver op-book-fill). */
+    /* Sección 2 de Home (izquierda: Dólares / derecha: Destacados) — mismo
+       mecanismo de grilla que .mosaic/.col de cotizaciones.component.css:
+       grid de 2 columnas iguales + gap 14px. Referencia (AL30/Caución/
+       Plazo fijo) se sacó del todo por pedido de Elio — antes compartía la
+       columna izquierda con Dólares dentro de .op-home-col (wrapper
+       flex-column para apilar 2 cards); con Dólares sola ya no hace falta
+       ese wrapper, .op-card.op-dolares pasa a ser directamente el 1er hijo
+       del grid, al mismo nivel que .op-destacados.
+       Fondos NO vive acá adentro (ver .op-card.op-fondos más abajo, a lo
+       ancho completo fuera del grid) — eso no cambió.
+       align-items es stretch (default, sin declarar acá): con Dólares sola
+       (mucho menos contenido que los 5 movers de Destacados) el grid la
+       estira a la altura de la fila más alta automáticamente — de ahí
+       .op-dolares-solo (ver más abajo) centrando su contenido en esa altura
+       en vez de quedar pegado arriba con un hueco abajo. */
     .op-home-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
-    .op-home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
     /* Bloque destacado (Dólares+Referencia+Destacados) — pedido de Elio,
        "más notoriedad" para todo el bloque junto, no cada card por separado.
-       Wrapper puramente visual alrededor de .op-home-mosaic: NO toca el
-       grid interno, el gap entre columnas, ni la simetría de altura ya
-       resuelta arriba (align-items:stretch sigue en .op-home-mosaic, sin
-       cambios) — .op-home-highlight es un contenedor extra, no reemplaza a
-       .op-home-mosaic.
-       Tratamiento (dentro de los tokens existentes, ver ui-kit.md):
-       - Barra de acento de 3px en el borde superior con --accent (único
-         azul del sistema, #2563eb) — mismo mecanismo que .alert-bar/
-         .freeze-bar (ui-kit.md regla #4, "zona destacada"), pero como
-         border-top en vez de border-left: el bloque es más ancho que alto
-         (2 columnas lado a lado), una barra superior se nota más que una
-         lateral de 3px en un contenedor tan ancho.
-       - padding-top compensa el espacio que ocupaba antes el border-top
-         (evita que el contenido salte al agregar la barra).
-       - border + border-radius (--line/--r-lg) para que la barra de acento
-         tenga un borde que la enmarque, mismo radio que ya usan las cards.
-       - box-shadow: var(--shadow) (la sombra de doble capa ya definida en
-         :root, reservada hoy para "menús flotantes") — no es un glow (sin
-         color, sin blur exagerado), es la MISMA variable que ya existe,
-         simplemente aplicada acá para despegar el bloque del fondo y de
-         Acciones/Fondos alrededor, tal como se pidió. Las cards internas
-         siguen con su --shadow-sm de siempre (sin cambios), así que hay
-         jerarquía visual: sombra chica por card, sombra más marcada para
-         todo el bloque. */
+       Historial: 1ro barra de 3px arriba + --shadow → "franjita azul"; 2do
+       wash --accent-sf + borde --accent-2 en las 4 caras → rechazado, leía
+       como alerta/aviso; 3ro barra izquierda de 4px + --shadow-sm → mismo
+       riesgo de quedar sutil otra vez. Wrapper visual alrededor de
+       .op-home-mosaic: NO toca el grid interno, el gap entre columnas, ni
+       la simetría de altura ya resuelta arriba (align-items:stretch sigue
+       en .op-home-mosaic, sin cambios) — .op-home-highlight es un
+       contenedor extra, no reemplaza a .op-home-mosaic.
+
+       Tratamiento actual (4 ajustes puntuales, siguen sin fondo de color ni
+       marco en las 4 caras — sólo UN borde con acento, como pidió Elio):
+       1) Barra de acento de 4px → 6px (más presencia, sigue siendo sólo
+          border-left, sin fondo).
+       2) Sombra de elevación real: --shadow (la doble capa ya definida en
+          :root, blur 26px — hoy reservada para "menús flotantes", ver
+          ui-kit.md §2) en vez de --shadow-sm (la sombra chica de 2px que
+          usa cualquier .op-card) — el bloque completo se despega de la
+          página, las cards internas (.op-card) siguen con --shadow-sm de
+          siempre, así que hay jerarquía real entre "el bloque" y "las
+          cards de adentro".
+       3) Más espacio vertical antes/después del bloque: .operar ya usa
+          gap:18px entre TODAS sus secciones directas (Acciones, este
+          bloque, Fondos) — como .op-home-highlight ahora es uno de esos
+          hijos directos, se le agrega margin block propio por ENCIMA del
+          gap del padre, para que se note como sección aparte sin tocar el
+          spacing de Acciones↔Fondos entre sí si este bloque no existiera.
+       4) Label "Datos clave" convertido en badge/pill: reusa el mismo
+          patrón visual de los badges "estimado" de Referencia (.ori-chip:
+          inline-flex, altura fija, --r-sm, wash + borde), variante propia
+          con wash --accent-sf/borde --accent-2 (familia acento, no
+          pos/warn) en vez de un texto plano con ícono al lado. */
     .op-home-highlight {
-      border-top: 3px solid var(--accent);
-      border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--accent);
       border-radius: var(--r-lg);
       box-shadow: var(--shadow);
-      padding: 13px 14px 14px;
+      margin: 10px 0;
+      padding: 16px 18px 16px 15px;
     }
+    .op-home-highlight-head {
+      display: flex; align-items: center; gap: 8px; margin: 0 0 14px; color: var(--accent-2);
+    }
+    /* Badge "Datos clave" — mismo patrón que .ori-chip (inline-flex, altura
+       fija, radio --r-sm, wash + borde de una familia) en vez de texto
+       plano; familia acento en vez de pos/warn/neg (no es P&L ni estado). */
+    .op-home-highlight-badge {
+      display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+      border-radius: var(--r-sm); font-family: var(--font-display); font-size: 12.5px; font-weight: 700;
+      letter-spacing: 0.01em; background: var(--accent-sf); border: 1px solid var(--accent-2); color: var(--accent-2);
+    }
+    /* Números protagonistas de adentro del bloque, agrandados (pedido #2) —
+       escopeados a .op-home-highlight para no afectar las mismas clases
+       reusadas en Ficha/Ticket (.ori-chip en op-book-toggle) ni en Panel.
+       Destacados (om-sym/om-px/om-chip) sube a la MISMA escala que
+       Dólares/Referencia (17-19px) — antes quedaba 1 paso más chico que sus
+       vecinos en el mismo bloque ("salto hacia atrás", ver pedido #2). La
+       card top (.op-mover-top) ya tiene su propio +1px sobre esta base
+       (ver reglas de .op-mover-top más arriba), sin escoparlas de nuevo. */
+    .op-home-highlight .od-val { font-size: 19px; }
+    .op-home-highlight .orr-val { font-size: 17px; }
+    .op-home-highlight .ori-chip { font-size: 12px; height: 22px; }
+    .op-home-highlight .om-sym { font-size: 15px; }
+    .op-home-highlight .om-px { font-size: 15px; }
+    .op-home-highlight .om-chip { font-size: 12.5px; height: 23px; }
 
     /* Sección de 2 columnas de Ficha (rango+gráfico / Puntas) — mismo
        mecanismo de grilla que .op-home-mosaic/.op-home-col de arriba, que a
@@ -1311,6 +1439,16 @@ const DOLAR_STRIP: DolarStripRow[] = [
        2 columnas de esa fila sin afectar AL30/Caución (fila de arriba, que
        sigue en su columna 1fr normal). */
     .op-ref-row:last-child { border-bottom: 0; grid-column: 1 / -1; }
+    /* Fix de espaciado (medido con getBoundingClientRect, ver historial):
+       .orr-right tiene margin-left:auto para empujar valor+chip al borde
+       derecho de SU fila — en AL30/Caución esa fila mide ~289px (1 columna),
+       así que no se nota. Plazo fijo ocupa la fila COMPLETA (587px, ver
+       grid-column:1/-1 arriba, necesario para no dejar hueco) y el mismo
+       margin-left:auto ahí empujaba el valor hasta los 433px de x, lejísimos
+       del label — terminaba alineado bajo el valor de Caución en vez de
+       pegado a su propio label. Se pisa el auto con un gap fijo chico, igual
+       de ajustado que el resto de las filas. */
+    .op-ref-row:last-child .orr-right { margin-left: 12px; }
     .op-ref-row:hover { background: var(--accent-sf); }
     /* Caución/Plazo fijo (ver template op-ref-row-static): sin destino de
        navegación real, no deben parecer clickeables — sin cursor pointer ni
@@ -1325,20 +1463,49 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .orr-val { font-size: 15px; font-weight: 600; color: var(--ink); }
     .orr-chevron { color: var(--ink-3); font-size: 15px; line-height: 1; flex-shrink: 0; }
 
-    /* Destacados — grilla fija de 2 columnas. Tarjeta clickeable (abre Ficha,
-       ver selectSymbol) con el botón "Comprar" superpuesto arriba a la
-       derecha — mismo patrón stopPropagation que .op-buy-row-btn. */
+    /* Destacados — grilla fija de 2 columnas. Tarjeta clickeable (abre
+       Ficha, ver selectSymbol). Layout de 2 filas fijas en vez del overlay
+       anterior (símbolo+botón arriba con position:absolute, precio+% sueltos
+       abajo con otra alineación — leía desprolijo):
+       - .om-top: símbolo a la izquierda, badge de variación (con flecha
+         direccional) a la derecha — misma fila, alineados.
+       - .om-bottom: precio a la izquierda, botón Comprar a la derecha,
+         mismo nivel — ya NO es absolute, participa del flujo normal. */
     .op-movers-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .op-mover {
-      position: relative; display: flex; flex-direction: column; gap: 4px;
+      display: flex; flex-direction: column; gap: 8px;
       padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r);
       cursor: pointer; transition: border-color .12s, background .12s;
     }
     .op-mover:hover { border-color: var(--line-2); background: var(--accent-sf); }
-    .om-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); padding-right: 64px; }
+    .om-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .om-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .om-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); }
     .om-px { font-size: 13px; color: var(--ink-2); }
-    .om-chip { align-self: flex-start; }
-    .op-buy-mover-btn { position: absolute; top: 8px; right: 10px; }
+    .om-chip-arrow { font-size: 8px; margin-right: 1px; }
+
+    /* La primera card de Destacados (pedido #3): destacados() ya viene
+       ordenado por variación, así que i===0 es EL mayor gainer/loser del
+       momento, no una más de 4 iguales. Mismo patrón "zona destacada" que
+       .op-home-highlight (barra izquierda sólida) pero en la familia
+       semántica pos/neg (ya usada por .om-chip) en vez del acento —
+       corresponde: esto es dirección de mercado, no identidad de marca.
+       Wash tenue de fondo (no sólido, para no competir con el hover) +
+       padding levemente mayor + símbolo/precio más grandes que el resto de
+       las 3 cards "normales" del grid. */
+    .op-mover.op-mover-top {
+      grid-column: 1 / -1;
+      padding: 13px 14px;
+      border-left: 4px solid var(--line);
+    }
+    .op-mover.op-mover-top.pos { background: var(--pos-bg); border-left-color: var(--pos); }
+    .op-mover.op-mover-top.neg { background: var(--neg-bg); border-left-color: var(--neg); }
+    /* Hover propio (no el --accent-sf genérico de .op-mover:hover): el wash
+       pos/neg es la jerarquía visual pedida, tapar todo con el wash de
+       acento en hover la anularía — sólo se oscurece el borde. */
+    .op-mover.op-mover-top:hover { border-color: var(--line); }
+    .op-mover.op-mover-top .om-sym { font-size: 15px; }
+    .op-mover.op-mover-top .om-px { font-size: 15px; font-weight: 600; }
 
     /* Fondos — grilla fija de 2 columnas */
     .op-fondos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -1660,8 +1827,56 @@ const DOLAR_STRIP: DolarStripRow[] = [
        botón Cartera, que se mantienen flex-shrink:0/flex:1 como ya estaban. */
     .op-home-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
     .op-home-head .op-search-wrap { flex: 1 1 220px; min-width: 0; }
-    .op-home-head .op-pills { flex-shrink: 0; }
+    .op-home-head .op-top-mover { flex-shrink: 0; }
     .op-cartera-btn { flex-shrink: 0; position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; }
+
+    /* Widget compacto de Destacados, al lado del buscador (pedido de Elio,
+       ocupa el espacio que dejaron los 5 toggles de instrumento) — mismo
+       alto que .op-search (40px) para alinear en la fila. Una sola línea:
+       label + símbolo + precio + variación + botón Comprar chico. Reusa
+       .op-buy-row-btn (mismo botón "Comprar" del resto de la app) en vez de
+       un botón nuevo. NO es la card .op-destacados completa (esa sigue
+       intacta más abajo) — acá no entra el grid de 4 movers ni el padding
+       de una .op-card, es un control de línea única. */
+    .op-top-mover {
+      display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 12px;
+      border: 1px solid var(--line); border-radius: var(--r);
+      background: var(--surface);
+    }
+    .otm-lbl {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+      flex-shrink: 0;
+    }
+    .op-top-mover-body {
+      display: flex; align-items: center; gap: 8px; min-width: 0;
+      border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left;
+    }
+    /* Transición de la rotación automática (ver rotatingMover/@for con track
+       por symbol en el template): fade + slide sutil de entrada cada vez
+       que Angular recrea el nodo al cambiar de mover. */
+    .otm-fade-in { animation: otm-fade-in .32s cubic-bezier(.16,1,.3,1); }
+    @keyframes otm-fade-in {
+      from { opacity: 0; transform: translateY(2px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .otm-fade-in { animation: none; }
+    }
+    .otm-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); }
+    .otm-px { font-size: 13px; color: var(--ink-2); }
+    .otm-chip {
+      display: inline-flex; align-items: center; height: 20px; padding: 0 7px;
+      border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+      background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-3);
+    }
+    /* Antes fija en .pos (topMover() sólo filtraba ganadores) — ahora el
+       widget rota sobre destacados() completo, que puede incluir movers
+       negativos (ordenado por variación ABSOLUTA), así que necesita ambas
+       variantes semánticas, igual que .om-chip/.or-chip. */
+    .otm-chip.pos { background: var(--pos-bg); border-color: var(--pos-line); color: var(--pos); }
+    .otm-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
+    .op-top-mover-buy { flex-shrink: 0; height: 26px; }
+    .op-top-mover-empty { padding: 0; font-size: 12px; }
     .op-cartera-badge {
       position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
       background: var(--pos); color: var(--surface); font-size: 10px; font-weight: 700;
@@ -1691,18 +1906,32 @@ const DOLAR_STRIP: DolarStripRow[] = [
     }
 
     @media (max-width: 760px) {
-      /* op-home-head en 1 columna: buscador a ancho completo, luego toggles,
-         luego Cartera — en vez de la fila única de desktop, que en mobile
-         (buscador flex-basis 220px + 5 pills + botón Cartera) no entraría y
-         forzaría wraps desprolijos a mitad de elemento. */
+      /* op-home-head en 1 columna: buscador a ancho completo, luego widget de
+         Destacados compacto, luego Cartera — en vez de la fila única de
+         desktop, que en mobile (buscador flex-basis 220px + widget + botón
+         Cartera) no entraría y forzaría wraps desprolijos a mitad de
+         elemento. */
       .op-home-head { flex-direction: column; align-items: stretch; }
       .op-home-head .op-search-wrap { flex: 1 1 auto; }
+      .op-top-mover { justify-content: space-between; }
       .op-dolares-row { flex-direction: column; }
       .op-dollar-item { padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
       .op-dollar-item:not(:first-child) { padding-top: 8px; }
       .op-dollar-item:not(:last-child) { padding-bottom: 8px; }
       .op-dollar-item:last-child { border-bottom: 0; }
-      .op-acciones-grid { display: none; }
+      /* Antes .op-acciones-grid se ocultaba entera y .op-acciones-cards (fuera
+         del grid) se mostraba sola, con una única lista global. Ahora cada
+         columna es independiente (dropdown propio, ver .op-acciones-col) y
+         .op-acciones-cards vive DENTRO de esa columna/grid — ocultar el grid
+         completo escondería también las cards (un padre display:none oculta
+         a sus descendientes sin importar su propio display). Se apilan las
+         2 columnas en 1 sola (mismo criterio que el resto de los mosaicos en
+         este breakpoint) y, dentro de cada una, se alterna tabla↔cards. */
+      .op-acciones-grid { grid-template-columns: 1fr; }
+      /* Escopeado a .op-acciones-grid (no un .op-table-wrap global): esa
+         misma clase la reusan Panel y Cartera/Movimientos (ver
+         .op-cartera-table), que están fuera de alcance y no deben ocultarse. */
+      .op-acciones-grid .op-table-wrap { display: none; }
       .op-acciones-cards { display: flex; }
       .op-ref-list { grid-template-columns: 1fr; }
       .op-ref-row { flex-wrap: wrap; }
@@ -1825,6 +2054,7 @@ export class OperarComponent implements OnInit {
   private usaFetched = false;
   // Cache de serie histórica por symbol+rango — no se re-fetchea si ya se pidió.
   private historicoCache = new Map<string, HistoricoPoint[]>();
+  private destroyRef = inject(DestroyRef);
 
   // Prefetch al entrar a Home; sólo una vez por sesión del componente (Panel/
   // Ficha/Ticket no tienen fetch propio todavía).
@@ -1833,8 +2063,68 @@ export class OperarComponent implements OnInit {
       this.homeLoaded = true;
       this.loadHome();
       this.loadFondos();
+      // Si el instrumento persistido de alguna columna es Letras/ONs (ver
+      // loadHomeColLeft/Right en operar-storage.ts), dispara su fetch lazy
+      // ya mismo — antes esto sólo pasaba al hacer click en un toggle
+      // (selectHomeInstrument), pero ahora la columna puede arrancar
+      // directo en ese instrumento por la persistencia.
+      this.ensurePanelData(this.homeInstrumentLeft());
+      this.ensurePanelData(this.homeInstrumentRight());
+      // Polling de refresco automático (pedido: Destacados "en tiempo
+      // real"): re-corre loadHome() cada 20s mientras el componente esté
+      // vivo, así accionesRows/cedearsRows/bonosRows se refrescan solos y
+      // destacados()/topMover() (computed sobre esas signals) reflejan
+      // precio/variación nuevos sin que el usuario haga nada. Limpieza vía
+      // DestroyRef (equivalente a ngOnDestroy) para no dejar el timer
+      // corriendo si el usuario navega fuera de Operar.
+      timer(20_000, 20_000)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(() => this.loadHome());
     }
   });
+
+  // Índice rotativo del widget compacto de Destacados (header, al lado del
+  // buscador) — antes mostraba fijo topMover() (el mayor % de ganancia);
+  // ahora rota entre TODOS los elementos de destacados() cada 4.5s. Se
+  // alimenta de datos vivos: destacados() ya es un computed sobre
+  // accionesRows/cedearsRows (refrescadas por el polling de arriba), así que
+  // el elemento que se está mostrando en cada momento se actualiza solo si
+  // cambia su precio/variación mientras está en pantalla — currentMoverIndex
+  // sólo decide CUÁL mostrar, no clona el dato.
+  currentMoverIndex = signal(0);
+  private moverRotationPaused = signal(false);
+  private moverRotation = timer(4_500, 4_500)
+    .pipe(takeUntilDestroyed(this.destroyRef))
+    .subscribe(() => {
+      if (this.moverRotationPaused()) return;
+      const n = this.destacados().length;
+      if (!n) return;
+      this.currentMoverIndex.update((i) => (i + 1) % n);
+    });
+
+  // Mover que muestra el widget rotativo del header: clamp por si
+  // destacados() cambió de tamaño (ej. de 5 a menos) entre rotaciones.
+  rotatingMover = computed<MoverRow | null>(() => {
+    const list = this.destacados();
+    if (!list.length) return null;
+    const idx = this.currentMoverIndex() % list.length;
+    return list[idx];
+  });
+  // Envoltorio en array de 0/1 para poder usar @for+track en el template
+  // (ver comentario en el template) — necesario para que el fade se
+  // reproduzca en cada rotación en vez de quedar estático.
+  rotatingMoverList = computed<MoverRow[]>(() => {
+    const m = this.rotatingMover();
+    return m ? [m] : [];
+  });
+
+  pauseMoverRotation() {
+    this.moverRotationPaused.set(true);
+  }
+
+  resumeMoverRotation() {
+    this.moverRotationPaused.set(false);
+  }
 
   // Fetch de la serie histórica al entrar a Ficha o al cambiar de rango
   // (cacheado por symbol+rango en loadHistorico, ver más abajo).
@@ -1854,22 +2144,20 @@ export class OperarComponent implements OnInit {
       .slice(0, 8);
   });
 
-  // AL30 vive en el panel de bonos (IOL mapea bonos soberanos a titulosPublicos).
-  al30 = computed<PanelRow | null>(() => this.bonosRows().find((r) => r.symbol === 'AL30') ?? null);
+  // Panel de Acciones (primer contenedor de Home): 2 columnas INDEPENDIENTES
+  // (pedido de Elio, reemplaza el toggle global único que tenían antes) —
+  // cada columna elige su propio tipo de instrumento vía dropdown y persiste
+  // esa elección en localStorage (ver operar-storage.ts), mismo patrón que
+  // market-hours.config.ts. Reusa exactamente la misma fuente cacheada que
+  // ya lee panelRawRows para Panel — nada de fetch/datos nuevos, sólo lee
+  // accionesRows/cedearsRows/bonosRows/letrasRows/onsRows según el
+  // instrumento elegido en cada columna.
+  homeInstrumentLeft = signal<InstrumentId>(loadHomeColLeft() ?? 'acciones');
+  homeInstrumentRight = signal<InstrumentId>(loadHomeColRight() ?? 'cedears');
+  homeInstrumentLabelLeft = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrumentLeft())?.label ?? '');
+  homeInstrumentLabelRight = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrumentRight())?.label ?? '');
 
-  // Todas las Acciones (primer contenedor de Home): misma fuente real que
-  // consume Panel para id==='acciones' (accionesRows, ver loadHome), sin
-  // recorte Líder/General — acá se listan completas, ordenadas por símbolo,
-  // repartidas en 2 columnas (ver op-acciones-grid en el template).
-  //
-  // Toggle de instrumento del contenedor de Home (pedido de Elio): qué
-  // instrumento muestra la card de arriba de Home (antes fija en
-  // "Acciones", ver selectHomeInstrument). Reusa exactamente la misma fuente
-  // cacheada que ya lee panelRawRows para Panel — nada de fetch/datos nuevos.
-  homeInstrument = signal<InstrumentId>('acciones');
-  homeInstrumentLabel = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrument())?.label ?? '');
-  homeRowsAll = computed<PanelRow[]>(() => {
-    const id = this.homeInstrument();
+  private rowsForInstrument(id: InstrumentId): PanelRow[] {
     const rows: PanelRow[] = id === 'cedears' ? this.cedearsRows() : (
       id === 'bonos' ? this.bonosRows() :
       id === 'letras' ? this.letrasRows() :
@@ -1877,23 +2165,47 @@ export class OperarComponent implements OnInit {
       this.accionesRows()
     );
     return [...rows].sort((a, b) => String(a.symbol ?? '').localeCompare(String(b.symbol ?? '')));
-  });
-  homeColLeft = computed<PanelRow[]>(() => this.homeRowsAll().slice(0, Math.ceil(this.homeRowsAll().length / 2)));
-  homeColRight = computed<PanelRow[]>(() => this.homeRowsAll().slice(Math.ceil(this.homeRowsAll().length / 2)));
-  // Preview mobile (PROMPT 9): primeras 8, mismo orden/fuente que
-  // homeRowsAll (alfabético, sin criterio de "destacadas" ni ordenar por
-  // variación — no se pidió). Sólo se usa en .op-acciones-cards (≤760px); el
-  // desktop sigue mostrando homeColLeft/homeColRight completas.
-  homePreviewMobile = computed<PanelRow[]>(() => this.homeRowsAll().slice(0, 8));
+  }
 
-  // Top 4 movers por variación absoluta, 100% real sobre acciones+cedears cacheados.
+  // Cada columna ahora es la lista COMPLETA de su propio instrumento (ya no
+  // es una mitad alfabética de una única lista global, ver comentario de
+  // arriba) — mismo orden alfabético que antes.
+  homeRowsLeft = computed<PanelRow[]>(() => this.rowsForInstrument(this.homeInstrumentLeft()));
+  homeRowsRight = computed<PanelRow[]>(() => this.rowsForInstrument(this.homeInstrumentRight()));
+  // Preview mobile (PROMPT 9), ahora por columna: primeras 8 de cada
+  // instrumento independiente. Sólo se usa en .op-acciones-cards (≤760px);
+  // el desktop sigue mostrando homeRowsLeft/homeRowsRight completas.
+  homePreviewMobileLeft = computed<PanelRow[]>(() => this.homeRowsLeft().slice(0, 8));
+  homePreviewMobileRight = computed<PanelRow[]>(() => this.homeRowsRight().slice(0, 8));
+
+  // Top 5 movers por variación absoluta, 100% real sobre acciones+cedears
+  // cacheados. Antes eran 4 (1 destacado grande + 3 chicos en grid de 2
+  // columnas): el 3ro quedaba solo en su fila, dejando un hueco vacío al
+  // lado — con 5 (1 grande + 4 chicos) el grid de 2x2 de los chicos cierra
+  // sin huecos (ver .op-mover-top ocupando la fila completa en el template).
   destacados = computed<MoverRow[]>(() => {
     const all: PanelRow[] = [...this.accionesRows(), ...this.cedearsRows()];
     return [...all]
       .filter((r) => r?.symbol)
       .sort((a, b) => Math.abs(b.pct_change || 0) - Math.abs(a.pct_change || 0))
-      .slice(0, 4)
+      .slice(0, 5)
       .map((r) => ({ symbol: r.symbol, price: this.price(r), pctChange: r.pct_change || 0 }));
+  });
+
+  // Widget compacto nuevo, al lado del buscador (reemplaza el espacio que
+  // ocupaban los 5 toggles de instrumento): la acción/cedear con MAYOR % de
+  // ganancia en tiempo real. Reusa la misma fuente/orden que destacados() en
+  // vez de reinventar el cálculo — a diferencia de destacados() (top 4 por
+  // variación ABSOLUTA, mezcla ganancias y pérdidas), acá se filtra sólo
+  // pct_change positivo y se ordena descendente para quedarnos con el mayor
+  // ganador real del momento.
+  topMover = computed<MoverRow | null>(() => {
+    const all: PanelRow[] = [...this.accionesRows(), ...this.cedearsRows()];
+    const ganadores = all
+      .filter((r) => r?.symbol && (r.pct_change || 0) > 0)
+      .sort((a, b) => (b.pct_change || 0) - (a.pct_change || 0));
+    const top = ganadores[0];
+    return top ? { symbol: top.symbol, price: this.price(top), pctChange: top.pct_change || 0 } : null;
   });
 
   selectedInstrumentLabel = computed<string>(() => {
@@ -2222,14 +2534,23 @@ export class OperarComponent implements OnInit {
     this.ensurePanelData(id);
   }
 
-  // Toggle de instrumento del contenedor de Home (ver homeRowsAll/pedido de
-  // Elio): a diferencia de selectInstrument() NO navega a Panel, cambia el
-  // instrumento mostrado sin salir de Home. Reusa ensurePanelData() para el
-  // mismo fetch lazy de Letras/ONs que ya usa Panel (cacheado en
-  // lazyFetched, nunca se re-fetchea) — Acciones/Cedears/Bonos ya vienen
-  // precargados por loadHome().
-  selectHomeInstrument(id: InstrumentId) {
-    this.homeInstrument.set(id);
+  // Dropdown de instrumento de cada columna del panel de Acciones (ver
+  // homeRowsLeft/homeRowsRight, pedido de Elio): a diferencia de
+  // selectInstrument() NO navega a Panel, cambia el instrumento mostrado en
+  // esa columna sin salir de Home, y persiste la elección en localStorage
+  // (ver operar-storage.ts) para que no se resetee al recargar. Reusa
+  // ensurePanelData() para el mismo fetch lazy de Letras/ONs que ya usa
+  // Panel (cacheado en lazyFetched, nunca se re-fetchea) — Acciones/Cedears/
+  // Bonos ya vienen precargados por loadHome().
+  selectHomeInstrumentLeft(id: InstrumentId) {
+    this.homeInstrumentLeft.set(id);
+    saveHomeColLeft(id);
+    this.ensurePanelData(id);
+  }
+
+  selectHomeInstrumentRight(id: InstrumentId) {
+    this.homeInstrumentRight.set(id);
+    saveHomeColRight(id);
     this.ensurePanelData(id);
   }
 

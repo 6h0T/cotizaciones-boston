@@ -7,7 +7,7 @@
  * paralelo al banner de "operatoria no habilitada" del Ticket, para poder
  * mostrar cómo se vería el producto terminado — no manda nada a IOL.
  */
-import type { OperarInstrumento, TicketPlazo } from './operar.types';
+import type { InstrumentId, OperarInstrumento, TicketPlazo } from './operar.types';
 
 export interface SimulatedMovement {
   id: string;
@@ -108,4 +108,56 @@ export function addMovement(input: AddMovementInput): SimulatedMovement {
   movements.push(movement);
   saveMovements(movements);
   return movement;
+}
+
+// ── Dropdowns de instrumento por columna (panel de Acciones, Home) ──────────
+// Pedido de Elio: cada columna del panel de Acciones eligo su propio tipo de
+// instrumento (antes un solo toggle global para las 2 columnas). Mismo patrón
+// que market-hours.config.ts: helpers de localStorage con fallback silencioso
+// si no está disponible (SSR/privacidad) o si el valor guardado no es un
+// InstrumentId válido.
+const HOME_COL_LEFT_STORAGE_KEY = 'boston-home-col-left';
+const HOME_COL_RIGHT_STORAGE_KEY = 'boston-home-col-right';
+
+const VALID_INSTRUMENT_IDS: InstrumentId[] = ['acciones', 'cedears', 'bonos', 'letras', 'ons'];
+
+function isValidInstrumentId(v: unknown): v is InstrumentId {
+  return typeof v === 'string' && VALID_INSTRUMENT_IDS.includes(v as InstrumentId);
+}
+
+/** Instrumento guardado para la columna izquierda, o `null` si no hay/es inválido. */
+export function loadHomeColLeft(): InstrumentId | null {
+  try {
+    const raw = localStorage.getItem(HOME_COL_LEFT_STORAGE_KEY);
+    return isValidInstrumentId(raw) ? raw : null;
+  } catch {
+    /* localStorage inaccesible (SSR/privacidad): usar el default */
+    return null;
+  }
+}
+
+/** Instrumento guardado para la columna derecha, o `null` si no hay/es inválido. */
+export function loadHomeColRight(): InstrumentId | null {
+  try {
+    const raw = localStorage.getItem(HOME_COL_RIGHT_STORAGE_KEY);
+    return isValidInstrumentId(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveHomeColLeft(id: InstrumentId): void {
+  try {
+    localStorage.setItem(HOME_COL_LEFT_STORAGE_KEY, id);
+  } catch {
+    /* localStorage inaccesible: no persiste entre sesiones, pero no rompe la app */
+  }
+}
+
+export function saveHomeColRight(id: InstrumentId): void {
+  try {
+    localStorage.setItem(HOME_COL_RIGHT_STORAGE_KEY, id);
+  } catch {
+    /* localStorage inaccesible: no persiste entre sesiones, pero no rompe la app */
+  }
 }
