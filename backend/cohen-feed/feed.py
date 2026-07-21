@@ -221,6 +221,23 @@ def start_live(env: dict[str, str]) -> None:
         MarketDataEntry.TRADE_COUNT,
     ]
 
+    def filter_valid(tickers: list[str]) -> list[str]:
+        """Cohen rechaza el mensaje de suscripción ENTERO si contiene un solo
+        símbolo desconocido, así que hay que intersecar el universo con la
+        lista oficial de instrumentos antes de suscribir."""
+        try:
+            resp = pyRofex.get_all_instruments()
+            valid = {
+                (i.get("instrumentId") or {}).get("symbol")
+                for i in resp.get("instruments", [])
+            }
+        except Exception as exc:
+            print(f"[feed] no pude listar instrumentos ({exc}); suscribo sin filtrar")
+            return tickers
+        kept = [t for t in tickers if t in valid]
+        print(f"[feed] universo filtrado: {len(kept)}/{len(tickers)} existen en Cohen")
+        return kept
+
     def on_error(message):
         print(f"[feed] ws error: {message}")
 
@@ -251,8 +268,9 @@ def start_live(env: dict[str, str]) -> None:
                 time.sleep(AUTH_RETRY_SEC)
                 continue
 
-            # 2) WebSocket + suscripción.
+            # 2) WebSocket + suscripción (solo símbolos que existen en Cohen).
             try:
+                subscribable = filter_valid(tickers)
                 try:
                     pyRofex.close_websocket_connection()
                 except Exception:
@@ -262,15 +280,15 @@ def start_live(env: dict[str, str]) -> None:
                     error_handler=on_error,
                     exception_handler=on_exception,
                 )
-                for i in range(0, len(tickers), SUBSCRIPTION_CHUNK):
+                for i in range(0, len(subscribable), SUBSCRIPTION_CHUNK):
                     pyRofex.market_data_subscription(
-                        tickers=tickers[i : i + SUBSCRIPTION_CHUNK],
+                        tickers=subscribable[i : i + SUBSCRIPTION_CHUNK],
                         entries=entries,
                         depth=1,
                     )
                 BOOKS.connected = True
                 backoff = 5
-                print(f"[feed] conectado a {ws_url} — {len(tickers)} instrumentos suscriptos")
+                print(f"[feed] conectado a {ws_url} — {len(subscribable)} instrumentos suscriptos")
             except Exception as exc:
                 print(f"[feed] conexión WS falló: {exc} — reintento en {backoff}s")
                 time.sleep(backoff)
