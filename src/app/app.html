@@ -179,7 +179,11 @@
       [marketClosed]="marketClosedAutoPause()"
     />
   } @else if (view() === 'operaciones') {
-    <app-operar />
+    <!-- OperarComponent ahora se monta vía router (app.routes.ts): Home en
+         /operar, la pantalla de orden (gráfico+Puntas+Orden) en
+         /operar/{ticker} — hidratada directo por Router, ver
+         hydrateFromRoute en operar.component.ts. -->
+    <router-outlet />
   } @else if (detailPanel() === 'mapa-cedears') {
     @if (errors()['cedears']) {
       <div class="error-box">No se pudo cargar: {{ errors()['cedears'] }}</div>

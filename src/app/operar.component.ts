@@ -1,11 +1,12 @@
-import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { forkJoin, catchError, of, timer } from 'rxjs';
+import { forkJoin, catchError, of, timer, switchMap, map } from 'rxjs';
 
-import { iolCedearsUrl, CedearRow } from './market.config';
+import { iolCedearsUrl, cohenHistoricoUrl, CedearRow } from './market.config';
 import {
   PanelRow,
   OperarSubview,
@@ -52,6 +53,126 @@ const DOLAR_STRIP: DolarStripRow[] = [
   { label: 'MEP', value: 1418 },
   { label: 'CCL', value: 1432 },
 ];
+
+// Días atrás por rango del gráfico — mismo mapeo que RANGO_DIAS en
+// api/iol/historico.js (server-side), replicado acá para armar la URL de
+// Cohen (que pide `dias`, no fechas desde/hasta).
+const RANGO_DIAS: Record<ChartRango, number> = {
+  '1S': 7,
+  '1M': 30,
+  '6M': 182,
+  '1A': 365,
+  MAX: 1825,
+};
+
+// Geometría fija del SVG del gráfico histórico. REESCRITO (v2): el SVG ya
+// NO contiene ningún <text> — bug real de v1: con preserveAspectRatio="none"
+// el navegador estira los glyphs de <text> de forma no uniforme (ancho ≠
+// alto), deformándolos como goma. Ahora los ejes (precio a la derecha,
+// fechas abajo) son overlays HTML/CSS posicionados en % sobre `.fc-wrap`,
+// fuera del SVG — el texto usa tipografía real del DOM, nunca se deforma
+// sin importar cómo se estire el SVG debajo.
+//
+// viewBox 1000x250. Sólo reserva un margen chico en X (pad.left/right, para
+// que el trazo no quede pegado al borde) — el padding vertical del 15%
+// arriba/abajo (pad.top/bottom) es el que pide la consigna, en PÍXELES del
+// viewBox (no en el rango de valores): la curva usa sólo el 70% central de
+// la altura, dejando 15%+15% de aire real sin necesidad de inflar
+// artificialmente el rango min/max del precio.
+const CHART_W = 1000;
+const CHART_H = 250;
+const CHART_PAD = { top: CHART_H * 0.15, bottom: CHART_H * 0.15, left: 8, right: 8 };
+const CHART_GRID_STEPS = 3; // 4 líneas horizontales (incluye tope y base)
+const CHART_X_LABELS = 5;   // etiquetas de fecha repartidas en el eje X
+
+interface ChartPoint {
+  x: number;
+  y: number;
+  price: number;
+  dateIso: string;
+}
+
+// xPct/yPct: posición en % del contenedor (0–100), para los overlays
+// HTML/CSS de los ejes — se derivan de x/y en unidades de viewBox dividido
+// por CHART_W/CHART_H, así quedan correctos sin importar el stretch no
+// uniforme del SVG (cada eje escala independiente, pero % de SU propio eje
+// siempre es exacto).
+interface ChartGridLine {
+  y: number;    // unidades de viewBox — para el <line> dentro del SVG
+  yPct: number; // % del alto del contenedor — para el label HTML overlay
+  label: string;
+}
+
+interface ChartXLabel {
+  xPct: number;
+  label: string;
+}
+
+interface ChartLayout {
+  linePath: string;
+  areaPath: string;
+  gridLines: ChartGridLine[];
+  xLabels: ChartXLabel[];
+  points: ChartPoint[];
+  plot: { x0: number; x1: number; y0: number; y1: number };
+}
+
+// Etiqueta corta del eje X: DD/MM para rangos cortos (1S/1M, donde importa el
+// día); mes/año para rangos largos (6M/1A/MAX, donde el día ya no aporta).
+function formatChartAxisDate(iso: string, rango: ChartRango): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  if (rango === '1S' || rango === '1M') {
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  }
+  return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+}
+
+// Fecha completa para el tooltip del crosshair — siempre con día, sin
+// importar el rango (acá sí importa la precisión exacta del punto).
+function formatChartTooltipDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// Serie MOCK: último recurso cuando Cohen e IOL devuelven ambos [] (feed sin
+// credenciales en dev, símbolo sin histórico real, mercado sin datos, etc.).
+// El objetivo es que el gráfico SVG de Ficha/Ticket nunca quede en blanco
+// con "Sin datos históricos" — genera un paseo aleatorio suave con la MISMA
+// forma HistoricoPoint[] (fechaHora ascendente, un punto por día) que ya
+// consume chartLayout(). No pretende ser una cotización real: es sólo
+// placeholder visual para que la UI no quede vacía.
+function buildMockHistorico(symbol: string, dias: number): HistoricoPoint[] {
+  // Semilla determinística por símbolo: mismo symbol => misma serie mock en
+  // toda la sesión (no "salta" en cada refetch/rango).
+  let seed = 0;
+  for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) % 100000;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  const points = Math.max(2, Math.min(dias, 180)); // tope razonable de puntos a graficar
+  const basePrice = 100 + (seed % 900); // $100–$1000, estable por símbolo
+  let price = basePrice;
+  const out: HistoricoPoint[] = [];
+  const today = new Date();
+  for (let i = points - 1; i >= 0; i--) {
+    const day = new Date(today.getTime() - i * 86_400_000);
+    const drift = (rand() - 0.5) * 0.03; // ±1.5% diario
+    price = Math.max(1, price * (1 + drift));
+    const open = price * (1 - (rand() - 0.5) * 0.01);
+    out.push({
+      fechaHora: `${day.toISOString().slice(0, 10)}T00:00:00`,
+      apertura: +open.toFixed(2),
+      maximo: +Math.max(open, price).toFixed(2),
+      minimo: +Math.min(open, price).toFixed(2),
+      ultimoPrecio: +price.toFixed(2),
+      volumenNominal: Math.round(1000 + rand() * 9000),
+    });
+  }
+  return out;
+}
 
 
 
@@ -147,6 +268,20 @@ const DOLAR_STRIP: DolarStripRow[] = [
             }
           </div>
 
+          <!-- Panel de Dólar, ubicado al lado del bloque "Destacada" en la
+               barra superior (pedido de UI: mismo nivel que el buscador y
+               Destacada, no en el mosaico de abajo). Reusa dolarStrip ya
+               existente en el component, con una piel compacta propia
+               (.op-top-dolar) en vez de la card completa .op-dolares. -->
+          <div class="op-top-dolar">
+            @for (d of dolarStrip; track d.label) {
+              <div class="otd-item">
+                <span class="otd-lbl">{{ d.label }}</span>
+                <span class="otd-val num">$ {{ fmt(d.value) }}</span>
+              </div>
+            }
+          </div>
+
           <button class="op-cartera-btn op-subtab on" type="button" (click)="goCartera()" title="Cartera" aria-label="Ver cartera">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
             <span>Cartera</span>
@@ -166,11 +301,32 @@ const DOLAR_STRIP: DolarStripRow[] = [
                (market-hours.config.ts). -->
           <div class="op-acciones-grid">
             <div class="op-acciones-col">
-              <select class="op-select op-col-select" [ngModel]="homeInstrumentLeft()" (ngModelChange)="selectHomeInstrumentLeft($event)" aria-label="Instrumento columna izquierda">
-                @for (p of pills; track p.id) {
-                  <option [value]="p.id">{{ p.label }}</option>
+              <div class="op-dropdown" [class.open]="dropdownOpenLeft()">
+                <button
+                  class="op-dropdown-btn"
+                  type="button"
+                  (click)="toggleDropdownLeft($event)"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="dropdownOpenLeft()"
+                  aria-label="Instrumento columna izquierda"
+                >
+                  <span>{{ homeInstrumentLabelLeft() }}</span>
+                  <span class="op-dropdown-arrow">▾</span>
+                </button>
+                @if (dropdownOpenLeft()) {
+                  <ul class="op-dropdown-menu" role="listbox">
+                    @for (p of pills; track p.id) {
+                      <li
+                        class="op-dropdown-option"
+                        role="option"
+                        [class.selected]="homeInstrumentLeft() === p.id"
+                        [attr.aria-selected]="homeInstrumentLeft() === p.id"
+                        (click)="pickHomeInstrumentLeft(p.id)"
+                      >{{ p.label }}</li>
+                    }
+                  </ul>
                 }
-              </select>
+              </div>
               @if (homeRowsLeft().length) {
                 <div class="op-table-wrap">
                   <table>
@@ -184,7 +340,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                     </thead>
                     <tbody>
                       @for (r of homeRowsLeft(); track r.symbol) {
-                        <tr (click)="selectSymbol(r)">
+                        <tr class="op-row-buy" (click)="comprarDirecto(r.symbol, 'home')" title="Comprar {{ r.symbol }}">
                           <td>
                             <span class="opt-sym">{{ r.symbol }}</span>
                             @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
@@ -194,9 +350,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                             {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
                           </td>
                           <td class="op-td-accion">
-                            <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                              Comprar
-                            </button>
+                            <span class="op-row-arrow" aria-hidden="true">›</span>
                           </td>
                         </tr>
                       }
@@ -206,7 +360,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
 
                 <div class="op-acciones-cards">
                   @for (r of homePreviewMobileLeft(); track r.symbol) {
-                    <div class="op-acc-card" (click)="selectSymbol(r)">
+                    <div class="op-acc-card" (click)="comprarDirecto(r.symbol, 'home')" title="Comprar {{ r.symbol }}">
                       <div class="op-acc-id">
                         <span class="opt-sym">{{ r.symbol }}</span>
                         @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
@@ -216,9 +370,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                         <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
                           {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
                         </span>
-                        <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                          Comprar
-                        </button>
+                        <span class="op-row-arrow op-acc-arrow" aria-hidden="true">›</span>
                       </div>
                     </div>
                   }
@@ -232,11 +384,32 @@ const DOLAR_STRIP: DolarStripRow[] = [
             </div>
 
             <div class="op-acciones-col">
-              <select class="op-select op-col-select" [ngModel]="homeInstrumentRight()" (ngModelChange)="selectHomeInstrumentRight($event)" aria-label="Instrumento columna derecha">
-                @for (p of pills; track p.id) {
-                  <option [value]="p.id">{{ p.label }}</option>
+              <div class="op-dropdown" [class.open]="dropdownOpenRight()">
+                <button
+                  class="op-dropdown-btn"
+                  type="button"
+                  (click)="toggleDropdownRight($event)"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="dropdownOpenRight()"
+                  aria-label="Instrumento columna derecha"
+                >
+                  <span>{{ homeInstrumentLabelRight() }}</span>
+                  <span class="op-dropdown-arrow">▾</span>
+                </button>
+                @if (dropdownOpenRight()) {
+                  <ul class="op-dropdown-menu" role="listbox">
+                    @for (p of pills; track p.id) {
+                      <li
+                        class="op-dropdown-option"
+                        role="option"
+                        [class.selected]="homeInstrumentRight() === p.id"
+                        [attr.aria-selected]="homeInstrumentRight() === p.id"
+                        (click)="pickHomeInstrumentRight(p.id)"
+                      >{{ p.label }}</li>
+                    }
+                  </ul>
                 }
-              </select>
+              </div>
               @if (homeRowsRight().length) {
                 <div class="op-table-wrap">
                   <table>
@@ -250,7 +423,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                     </thead>
                     <tbody>
                       @for (r of homeRowsRight(); track r.symbol) {
-                        <tr (click)="selectSymbol(r)">
+                        <tr class="op-row-buy" (click)="comprarDirecto(r.symbol, 'home')" title="Comprar {{ r.symbol }}">
                           <td>
                             <span class="opt-sym">{{ r.symbol }}</span>
                             @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
@@ -260,9 +433,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                             {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
                           </td>
                           <td class="op-td-accion">
-                            <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                              Comprar
-                            </button>
+                            <span class="op-row-arrow" aria-hidden="true">›</span>
                           </td>
                         </tr>
                       }
@@ -272,7 +443,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
 
                 <div class="op-acciones-cards">
                   @for (r of homePreviewMobileRight(); track r.symbol) {
-                    <div class="op-acc-card" (click)="selectSymbol(r)">
+                    <div class="op-acc-card" (click)="comprarDirecto(r.symbol, 'home')" title="Comprar {{ r.symbol }}">
                       <div class="op-acc-id">
                         <span class="opt-sym">{{ r.symbol }}</span>
                         @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
@@ -282,9 +453,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                         <span class="op-acc-chip num" [class.pos]="r.pct_change >= 0" [class.neg]="r.pct_change < 0">
                           {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
                         </span>
-                        <button class="op-buy-row-btn op-acc-buy" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'home')">
-                          Comprar
-                        </button>
+                        <span class="op-row-arrow op-acc-arrow" aria-hidden="true">›</span>
                       </div>
                     </div>
                   }
@@ -297,127 +466,6 @@ const DOLAR_STRIP: DolarStripRow[] = [
               }
             </div>
           </div>
-        </div>
-
-        <!-- Sección 2 de Home: mosaico de 2 columnas, mismo mecanismo de grilla
-             que .mosaic/.col de cotizaciones.component.css (grid de N columnas
-             fijas + gap, colapsa a 1 columna en el mismo breakpoint ≤1000px).
-             Sólo Dólares+Referencia (izquierda) vs Destacados (derecha) viven
-             en el grid de 2 columnas: Fondos se sacó afuera, a lo ancho
-             completo, como su propia sección debajo (ver .op-card.op-fondos
-             más abajo) — con Fondos adentro de la columna derecha, esa
-             columna quedaba más alta que Dólares+Referencia y el sobrante de
-             altura de la izquierda quedaba como hueco vacío al lado de
-             Fondos (align-items:start no empareja alturas de columna). Sacar
-             Fondos del grid es el cambio mínimo: al ser un bloque aparte en
-             flujo normal, no le importa cuál columna del mosaico fue más
-             alta, así que no hay hueco posible antes de que arranque.
-             Además, el grid ya NO usa align-items:start (ver CSS,
-             .op-home-mosaic): con :start cada columna medía sólo su propio
-             contenido y la izquierda (Dólares+Referencia) quedaba más baja
-             que Destacados, terminando en alturas distintas — con el
-             default (stretch) el grid estira ambas columnas a la altura de
-             la fila más alta automáticamente, sin necesitar height:100%
-             adicional en .op-home-col (es un div simple sin padding/borde
-             propio, el stretch del grid ya alcanza). Mismo mecanismo que se
-             usó para igualar Puntas/Orden en Ticket.
-             Ninguna card se reescribe: se reubican tal cual estaban.
-
-             .op-home-highlight (wrapper visual): 4to intento de "más
-             notoriedad" para este bloque completo, ver historial completo
-             en el CSS de .op-home-highlight más abajo. Header propio con
-             ícono + badge "Datos clave" (reusa el patrón visual de los
-             badges "estimado" de Referencia, ver .ori-chip / nueva variante
-             .op-home-highlight-badge), más padding, y los números
-             protagonistas de adentro (Dólares/AL30/Destacados) agrandados —
-             ver reglas escopeadas ".op-home-highlight .od-val" etc. más
-             abajo, así no afectan a Ficha/Ticket que reusan las mismas
-             clases (.ori-chip en op-book-toggle, por ej.). El grid de 2
-             columnas y la simetría de altura ya resuelta en
-             .op-home-mosaic quedan intactos, no se tocó nada de esa
-             mecánica. -->
-        <div class="op-home-highlight">
-          <div class="op-home-highlight-head">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8 12 14.7l-3.3-3.4L5 15"/></svg>
-            <span class="op-home-highlight-badge">Datos clave</span>
-          </div>
-        <div class="op-home-mosaic">
-          <!-- Referencia (AL30/Caución/Plazo fijo) SACADA por pedido de Elio
-               — era exclusiva de este bloque (al30()/orr-*/op-ref-* no se
-               usaban en ningún otro lado, confirmado por búsqueda antes de
-               tocar; .ori-chip se reusa en Ficha op-book-toggle y esa clase
-               CSS queda intacta, sin cambios). Dólares queda sola en la
-               columna izquierda — ya no hace falta el wrapper .op-home-col
-               (era flex-column para apilar 2 cards; con 1 sola card no
-               aporta nada), .op-card.op-dolares pasa a ser directamente el
-               1er hijo del grid de 2 columnas, igual que .op-destacados. */-->
-          <div class="op-card op-dolares op-dolares-solo">
-            <h3>Dólares</h3>
-            <div class="op-dolares-row">
-              @for (d of dolarStrip; track d.label) {
-                <div class="op-dollar-item">
-                  <span class="od-lbl">{{ d.label }}</span>
-                  <span class="od-val num">$ {{ fmt(d.value) }}</span>
-                </div>
-              }
-            </div>
-          </div>
-
-          <div class="op-card op-destacados">
-            <h3>Destacados</h3>
-            @if (destacados().length) {
-              <!-- Layout consistente (antes: símbolo+botón arriba, precio+%
-                   sueltos abajo con otra alineación, "desprolijo" — ver
-                   pedido). Ahora 2 filas fijas en las 4 cards: .om-top
-                   (símbolo + badge de variación con flecha direccional) y
-                   .om-bottom (precio + botón Comprar) — el botón se movió
-                   de overlay absoluto arriba-a-la-derecha a inline dentro
-                   de .om-bottom, mismo nivel que el precio (mejor jerarquía:
-                   precio y acción quedan juntos, no una encima de la otra
-                   con posiciones distintas).
-                   Jerarquía interna (pedido #3): destacados() ya viene
-                   ordenado por variación — la primera card (i===0) es LA
-                   destacada, no una más de una lista plana de 4 iguales.
-                   Se le agrega .op-mover-top: padding/tipografía más
-                   grandes + barra izquierda + wash tenue en la familia
-                   pos/neg según el signo de esa card (mismos tokens
-                   semánticos que ya usa .om-chip, no un color nuevo). -->
-              <div class="op-movers-grid">
-                @for (m of destacados(); track m.symbol; let i = $index) {
-                  <div
-                    class="op-mover"
-                    [class.op-mover-top]="i === 0"
-                    [class.pos]="i === 0 && m.pctChange >= 0"
-                    [class.neg]="i === 0 && m.pctChange < 0"
-                    (click)="selectSymbol(m)"
-                  >
-                    <div class="om-top">
-                      <span class="om-sym">{{ m.symbol }}</span>
-                      <span class="om-chip" [class.pos]="m.pctChange >= 0" [class.neg]="m.pctChange < 0">
-                        <!-- Ícono direccional ▲/▼ (pedido #4): no hay librería de
-                             íconos en el proyecto (SVG inline es el patrón ya
-                             usado, ver .op-cartera-btn) — acá se sigue el MISMO
-                             patrón de "texto como ícono" que ya usa .orr-chevron
-                             ('›'), sin agregar dependencias. Hereda el color del
-                             chip (currentColor), no un hex nuevo. -->
-                        <span class="om-chip-arrow">{{ m.pctChange >= 0 ? '▲' : '▼' }}</span>
-                        {{ m.pctChange >= 0 ? '+' : '' }}{{ fmt(m.pctChange) }}%
-                      </span>
-                    </div>
-                    <div class="om-bottom">
-                      <span class="om-px num">$ {{ fmt(m.price) }}</span>
-                      <button class="op-buy-row-btn op-buy-mover-btn" type="button" title="Comprar {{ m.symbol }}" [attr.aria-label]="'Comprar ' + m.symbol" (click)="$event.stopPropagation(); comprarDirecto(m.symbol, 'home')">
-                        Comprar
-                      </button>
-                    </div>
-                  </div>
-                }
-              </div>
-            } @else {
-              <div class="op-empty">Esperando cotizaciones…</div>
-            }
-          </div>
-        </div>
         </div>
 
         <!-- Fondos: datos reales vía api/iol/fondos.js → /api/v2/Titulos/FCI
@@ -522,7 +570,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
               </thead>
               <tbody>
                 @for (r of panelSortedRows(); track r.symbol) {
-                  <tr (click)="selectSymbol(r)">
+                  <tr class="op-row-buy" (click)="comprarDirecto(r.symbol, 'panel')" title="Comprar {{ r.symbol }}">
                     <td>
                       <span class="opt-sym">{{ r.symbol }}</span>
                       @if (r.desc) { <span class="opt-desc">{{ r.desc }}</span> }
@@ -532,9 +580,7 @@ const DOLAR_STRIP: DolarStripRow[] = [
                       {{ r.pct_change >= 0 ? '+' : '' }}{{ fmt(r.pct_change) }}%
                     </td>
                     <td class="op-td-accion">
-                      <button class="op-buy-row-btn" type="button" title="Comprar {{ r.symbol }}" [attr.aria-label]="'Comprar ' + r.symbol" (click)="$event.stopPropagation(); comprarDirecto(r.symbol, 'panel')">
-                        Comprar
-                      </button>
+                      <span class="op-row-arrow" aria-hidden="true">›</span>
                     </td>
                   </tr>
                 }
@@ -585,12 +631,75 @@ const DOLAR_STRIP: DolarStripRow[] = [
               }
             </div>
 
-            @if (historicoData().length > 1) {
+            @if (chartLayout(); as layout) {
               <div class="fc-wrap">
-                <svg class="fc-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
-                  <polygon class="fc-area" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartAreaPoints()" />
-                  <polyline class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.points]="chartPoints()" />
-                </svg>
+                <div class="fc-row">
+                  <!-- fc-plot: única superficie con position:relative que
+                       comparten el SVG (línea+área, SIN ningún <text>) y los
+                       overlays HTML (etiquetas de fecha + tooltip) — todos
+                       posicionados en % de ESTA caja, así que %s siempre
+                       calzan sin importar cómo el navegador estire el SVG
+                       (preserveAspectRatio="none" ya no deforma texto porque
+                       ya no hay texto adentro del SVG). -->
+                  <div
+                    #fichaChartPlot
+                    class="fc-plot"
+                    (mousemove)="onChartMove($event, fichaChartPlot)"
+                    (mouseleave)="onChartLeave()"
+                  >
+                    <svg class="fc-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="fcAreaGradPos" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#059669" stop-opacity="0.35" />
+                          <stop offset="100%" stop-color="#059669" stop-opacity="0" />
+                        </linearGradient>
+                        <linearGradient id="fcAreaGradNeg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" [attr.stop-color]="negColor" stop-opacity="0.35" />
+                          <stop offset="100%" [attr.stop-color]="negColor" stop-opacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <!-- Gridlines horizontales sutiles (eje Y) — sin texto, la
+                           marca de precio vive en el overlay .fc-axis-y de al lado. -->
+                      @for (g of layout.gridLines; track g.y) {
+                        <line class="fc-grid-line" [attr.x1]="layout.plot.x0" [attr.x2]="layout.plot.x1" [attr.y1]="g.y" [attr.y2]="g.y" />
+                      }
+                      <!-- Área: <path> M/L…Z explícito que baja a la base ANTES
+                           de cerrar (nunca una diagonal xN,yN -> x0,y0). -->
+                      <path class="fc-area" [attr.d]="layout.areaPath" [attr.fill]="chartIsPos() ? 'url(#fcAreaGradPos)' : 'url(#fcAreaGradNeg)'" />
+                      <!-- Línea: vector-effect="non-scaling-stroke" mantiene el
+                           trazo a 2px reales sin importar el stretch no
+                           uniforme del viewBox (preserveAspectRatio="none"). -->
+                      <path class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.d]="layout.linePath" fill="none" vector-effect="non-scaling-stroke" />
+                      <!-- Crosshair al pasar el cursor. -->
+                      @if (chartHover(); as h) {
+                        <line class="fc-crosshair-x" [attr.x1]="h.x" [attr.x2]="h.x" [attr.y1]="layout.plot.y0" [attr.y2]="layout.plot.y1" vector-effect="non-scaling-stroke" />
+                        <circle class="fc-crosshair-dot" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.cx]="h.x" [attr.cy]="h.y" r="4" vector-effect="non-scaling-stroke" />
+                      }
+                    </svg>
+
+                    <!-- Etiquetas de fecha (eje X): overlay HTML, nunca dentro
+                         del SVG — tipografía real del DOM, no se deforma. -->
+                    @for (xl of layout.xLabels; track xl.xPct) {
+                      <span class="fc-x-label" [style.left.%]="xl.xPct">{{ xl.label }}</span>
+                    }
+
+                    <!-- Tooltip del crosshair. -->
+                    @if (chartHover(); as h) {
+                      <div class="fc-tooltip" [style.left.%]="chartHoverXPct()">
+                        <span class="fc-tooltip-date">{{ chartHoverDateLabel() }}</span>
+                        <span class="fc-tooltip-price num">$ {{ fmt(h.price) }}</span>
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Eje Y: marcas de precio, overlay HTML en columna propia
+                       al lado del plot (nunca <text> dentro del SVG). -->
+                  <div class="fc-axis-y">
+                    @for (g of layout.gridLines; track g.y) {
+                      <span class="fc-axis-y-label" [style.top.%]="g.yPct">{{ g.label }}</span>
+                    }
+                  </div>
+                </div>
               </div>
             } @else if (historicoLoading()) {
               <div class="op-empty">Cargando gráfico…</div>
@@ -635,6 +744,78 @@ const DOLAR_STRIP: DolarStripRow[] = [
               <span class="fh-sym">{{ selectedSymbol() }}</span>
               <span class="fh-desc">{{ ticketTipo() === 'venta' ? 'Vender' : 'Comprar' }}</span>
             </div>
+          </div>
+
+          <!-- Gráfico histórico (mismo SVG que Ficha, ver .fc-wrap/chartPoints
+               más abajo): arriba de Puntas/Orden, en la pantalla de compra.
+               loadHistorico() se dispara para esta subvista vía fichaFetch
+               (ver effect en el component) — mismos historicoData()/
+               historicoLoading()/chartRango() que ya usa Ficha, sin
+               duplicar estado ni lógica. -->
+          <div class="op-card op-chart-card">
+            <div class="op-rango-pills">
+              @for (r of chartRangos; track r.id) {
+                <button class="op-rango-pill" type="button" [class.on]="chartRango() === r.id" (click)="selectRango(r.id)">
+                  {{ r.label }}
+                </button>
+              }
+            </div>
+
+            @if (chartLayout(); as layout) {
+              <div class="fc-wrap">
+                <div class="fc-row">
+                  <div
+                    #ticketChartPlot
+                    class="fc-plot"
+                    (mousemove)="onChartMove($event, ticketChartPlot)"
+                    (mouseleave)="onChartLeave()"
+                  >
+                    <svg class="fc-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="fcAreaGradPosTk" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#059669" stop-opacity="0.35" />
+                          <stop offset="100%" stop-color="#059669" stop-opacity="0" />
+                        </linearGradient>
+                        <linearGradient id="fcAreaGradNegTk" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" [attr.stop-color]="negColor" stop-opacity="0.35" />
+                          <stop offset="100%" [attr.stop-color]="negColor" stop-opacity="0" />
+                        </linearGradient>
+                      </defs>
+                      @for (g of layout.gridLines; track g.y) {
+                        <line class="fc-grid-line" [attr.x1]="layout.plot.x0" [attr.x2]="layout.plot.x1" [attr.y1]="g.y" [attr.y2]="g.y" />
+                      }
+                      <path class="fc-area" [attr.d]="layout.areaPath" [attr.fill]="chartIsPos() ? 'url(#fcAreaGradPosTk)' : 'url(#fcAreaGradNegTk)'" />
+                      <path class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.d]="layout.linePath" fill="none" vector-effect="non-scaling-stroke" />
+                      @if (chartHover(); as h) {
+                        <line class="fc-crosshair-x" [attr.x1]="h.x" [attr.x2]="h.x" [attr.y1]="layout.plot.y0" [attr.y2]="layout.plot.y1" vector-effect="non-scaling-stroke" />
+                        <circle class="fc-crosshair-dot" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.cx]="h.x" [attr.cy]="h.y" r="4" vector-effect="non-scaling-stroke" />
+                      }
+                    </svg>
+
+                    @for (xl of layout.xLabels; track xl.xPct) {
+                      <span class="fc-x-label" [style.left.%]="xl.xPct">{{ xl.label }}</span>
+                    }
+
+                    @if (chartHover(); as h) {
+                      <div class="fc-tooltip" [style.left.%]="chartHoverXPct()">
+                        <span class="fc-tooltip-date">{{ chartHoverDateLabel() }}</span>
+                        <span class="fc-tooltip-price num">$ {{ fmt(h.price) }}</span>
+                      </div>
+                    }
+                  </div>
+
+                  <div class="fc-axis-y">
+                    @for (g of layout.gridLines; track g.y) {
+                      <span class="fc-axis-y-label" [style.top.%]="g.yPct">{{ g.label }}</span>
+                    }
+                  </div>
+                </div>
+              </div>
+            } @else if (historicoLoading()) {
+              <div class="op-empty">Cargando gráfico…</div>
+            } @else {
+              <div class="op-empty">Sin datos históricos para este rango.</div>
+            }
           </div>
 
           <!-- Puntas + Orden en 2 columnas — grid dedicado del Ticket
@@ -1109,9 +1290,9 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .operar { display: flex; flex-direction: column; gap: 18px; }
 
     /* Buscador */
-    .op-search-wrap { position: relative; }
+    .op-search-wrap { position: relative; max-width: 300px; }
     .op-search {
-      width: 100%; height: 40px; padding: 0 14px;
+      width: 100%; max-width: 300px; height: 40px; padding: 0 14px;
       border: 1px solid var(--line); border-radius: var(--r);
       background: var(--surface); color: var(--ink);
       font-family: var(--font-ui); font-size: 14px; outline: none;
@@ -1190,15 +1371,6 @@ const DOLAR_STRIP: DolarStripRow[] = [
       margin: 0 0 12px; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--ink);
     }
 
-    /* Dólares sola en la columna izquierda del bloque "Datos clave" (ver
-       .op-home-mosaic): con el grid en stretch, esta card se estira a la
-       altura de Destacados (5 movers, mucho más contenido) — sin esto
-       quedaba pegada arriba con el h3 y los 3 valores, dejando un hueco
-       vacío grande abajo. flex-column + justify-content:center reparte esa
-       altura extra centrando el bloque de valores dentro de la card entera
-       (h3 arriba fijo, .op-dolares-row centrada en el resto del alto). */
-    .op-dolares-solo { display: flex; flex-direction: column; }
-    .op-dolares-solo .op-dolares-row { flex: 1; align-items: center; }
     /* Dólares — 3 columnas divididas (label arriba, valor mono debajo) */
     .op-dolares-row { display: flex; }
     .op-dollar-item {
@@ -1253,102 +1425,38 @@ const DOLAR_STRIP: DolarStripRow[] = [
        (mismo instrumento global); ahora cada columna es independiente. */
     .op-acciones-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
     .op-acciones-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-    /* Dropdown de instrumento de cada columna: reusa la piel de .op-select
-       (mismo control ya usado en Ticket para Precio/Plazo de liquidación,
-       ver más abajo) en vez de dejar el <select> con el estilo nativo del
-       navegador — borde --line, radio --r-sm, focus ring --accent-sf, sin
-       hex hardcodeado (mismos tokens que el resto del ui-kit). NO se creó
-       una clase de piel nueva: .op-col-select acá sólo agrega layout
-       (ancho fit-content + alineación arriba de la columna), sin duplicar
-       border/color/focus — eso lo sigue dando .op-select tal cual está. Sin
-       el look de .op-pill (esa clase se reserva para el filtro de Tenencias
-       en Cartera, ver .op-cart-filter). */
-    .op-col-select { align-self: flex-start; min-width: 140px; font-weight: 600; cursor: pointer; }
-
-    /* Sección 2 de Home (izquierda: Dólares / derecha: Destacados) — mismo
-       mecanismo de grilla que .mosaic/.col de cotizaciones.component.css:
-       grid de 2 columnas iguales + gap 14px. Referencia (AL30/Caución/
-       Plazo fijo) se sacó del todo por pedido de Elio — antes compartía la
-       columna izquierda con Dólares dentro de .op-home-col (wrapper
-       flex-column para apilar 2 cards); con Dólares sola ya no hace falta
-       ese wrapper, .op-card.op-dolares pasa a ser directamente el 1er hijo
-       del grid, al mismo nivel que .op-destacados.
-       Fondos NO vive acá adentro (ver .op-card.op-fondos más abajo, a lo
-       ancho completo fuera del grid) — eso no cambió.
-       align-items es stretch (default, sin declarar acá): con Dólares sola
-       (mucho menos contenido que los 5 movers de Destacados) el grid la
-       estira a la altura de la fila más alta automáticamente — de ahí
-       .op-dolares-solo (ver más abajo) centrando su contenido en esa altura
-       en vez de quedar pegado arriba con un hueco abajo. */
-    .op-home-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
-
-    /* Bloque destacado (Dólares+Referencia+Destacados) — pedido de Elio,
-       "más notoriedad" para todo el bloque junto, no cada card por separado.
-       Historial: 1ro barra de 3px arriba + --shadow → "franjita azul"; 2do
-       wash --accent-sf + borde --accent-2 en las 4 caras → rechazado, leía
-       como alerta/aviso; 3ro barra izquierda de 4px + --shadow-sm → mismo
-       riesgo de quedar sutil otra vez. Wrapper visual alrededor de
-       .op-home-mosaic: NO toca el grid interno, el gap entre columnas, ni
-       la simetría de altura ya resuelta arriba (align-items:stretch sigue
-       en .op-home-mosaic, sin cambios) — .op-home-highlight es un
-       contenedor extra, no reemplaza a .op-home-mosaic.
-
-       Tratamiento actual (4 ajustes puntuales, siguen sin fondo de color ni
-       marco en las 4 caras — sólo UN borde con acento, como pidió Elio):
-       1) Barra de acento de 4px → 6px (más presencia, sigue siendo sólo
-          border-left, sin fondo).
-       2) Sombra de elevación real: --shadow (la doble capa ya definida en
-          :root, blur 26px — hoy reservada para "menús flotantes", ver
-          ui-kit.md §2) en vez de --shadow-sm (la sombra chica de 2px que
-          usa cualquier .op-card) — el bloque completo se despega de la
-          página, las cards internas (.op-card) siguen con --shadow-sm de
-          siempre, así que hay jerarquía real entre "el bloque" y "las
-          cards de adentro".
-       3) Más espacio vertical antes/después del bloque: .operar ya usa
-          gap:18px entre TODAS sus secciones directas (Acciones, este
-          bloque, Fondos) — como .op-home-highlight ahora es uno de esos
-          hijos directos, se le agrega margin block propio por ENCIMA del
-          gap del padre, para que se note como sección aparte sin tocar el
-          spacing de Acciones↔Fondos entre sí si este bloque no existiera.
-       4) Label "Datos clave" convertido en badge/pill: reusa el mismo
-          patrón visual de los badges "estimado" de Referencia (.ori-chip:
-          inline-flex, altura fija, --r-sm, wash + borde), variante propia
-          con wash --accent-sf/borde --accent-2 (familia acento, no
-          pos/warn) en vez de un texto plano con ícono al lado. */
-    .op-home-highlight {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-left: 6px solid var(--accent);
-      border-radius: var(--r-lg);
-      box-shadow: var(--shadow);
-      margin: 10px 0;
-      padding: 16px 18px 16px 15px;
+    /* Dropdown custom de instrumento de cada columna (reemplaza el <select>
+       nativo, que no permite estilar el menú de opciones de forma
+       consistente entre navegadores): botón fit-content con flecha pegada
+       al texto + menú flotante propio (<ul>/<li>), mismo radio --r-sm en
+       botón y menú, hover/active en negro con texto blanco (pedido de UI). */
+    .op-dropdown { position: relative; align-self: flex-start; }
+    .op-dropdown-btn {
+      display: inline-flex; align-items: center; gap: 8px; width: fit-content;
+      height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--surface); color: var(--ink); font-family: var(--font-ui);
+      font-size: 14px; font-weight: 600; cursor: pointer; outline: none;
+      transition: border-color .12s, box-shadow .12s;
     }
-    .op-home-highlight-head {
-      display: flex; align-items: center; gap: 8px; margin: 0 0 14px; color: var(--accent-2);
+    .op-dropdown-btn:hover { border-color: var(--line-2); }
+    .op-dropdown.open .op-dropdown-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
+    .op-dropdown-arrow { font-size: 10px; color: var(--ink-3); line-height: 1; }
+    .op-dropdown-menu {
+      position: absolute; z-index: 6; top: calc(100% + 4px); left: 0; min-width: 100%;
+      margin: 0; padding: 4px; list-style: none;
+      border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--surface); box-shadow: var(--shadow);
     }
-    /* Badge "Datos clave" — mismo patrón que .ori-chip (inline-flex, altura
-       fija, radio --r-sm, wash + borde de una familia) en vez de texto
-       plano; familia acento en vez de pos/warn/neg (no es P&L ni estado). */
-    .op-home-highlight-badge {
-      display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
-      border-radius: var(--r-sm); font-family: var(--font-display); font-size: 12.5px; font-weight: 700;
-      letter-spacing: 0.01em; background: var(--accent-sf); border: 1px solid var(--accent-2); color: var(--accent-2);
+    .op-dropdown-option {
+      padding: 8px 12px; border-radius: var(--r-sm); white-space: nowrap;
+      font-family: var(--font-ui); font-size: 13.5px; font-weight: 600; color: var(--ink);
+      cursor: pointer; transition: background .1s, color .1s;
     }
-    /* Números protagonistas de adentro del bloque, agrandados (pedido #2) —
-       escopeados a .op-home-highlight para no afectar las mismas clases
-       reusadas en Ficha/Ticket (.ori-chip en op-book-toggle) ni en Panel.
-       Destacados (om-sym/om-px/om-chip) sube a la MISMA escala que
-       Dólares/Referencia (17-19px) — antes quedaba 1 paso más chico que sus
-       vecinos en el mismo bloque ("salto hacia atrás", ver pedido #2). La
-       card top (.op-mover-top) ya tiene su propio +1px sobre esta base
-       (ver reglas de .op-mover-top más arriba), sin escoparlas de nuevo. */
-    .op-home-highlight .od-val { font-size: 19px; }
-    .op-home-highlight .orr-val { font-size: 17px; }
-    .op-home-highlight .ori-chip { font-size: 12px; height: 22px; }
-    .op-home-highlight .om-sym { font-size: 15px; }
-    .op-home-highlight .om-px { font-size: 15px; }
-    .op-home-highlight .om-chip { font-size: 12.5px; height: 23px; }
+    .op-dropdown-option:hover,
+    .op-dropdown-option:active,
+    .op-dropdown-option.selected {
+      background: #000; color: #fff;
+    }
 
     /* Sección de 2 columnas de Ficha (rango+gráfico / Puntas) — mismo
        mecanismo de grilla que .op-home-mosaic/.op-home-col de arriba, que a
@@ -1375,6 +1483,12 @@ const DOLAR_STRIP: DolarStripRow[] = [
        abajo) — ahí Puntas queda arriba y Orden abajo, con su alto natural
        (la cadena stretch/100% de abajo no se activa fuera del grid). */
     .op-ticket-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 100%; }
+
+    /* Gráfico histórico del Ticket (pantalla de compra): misma pieza que
+       usa Ficha (.op-rango-pills + .fc-wrap, estilos más abajo), sólo se
+       agrega el espaciado interno de card + separación respecto del grid
+       de Puntas/Orden que va debajo. */
+    .op-chart-card { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
 
     /* Acciones en mobile: cards apiladas en vez de las tablas de 4 columnas
        (Símbolo/Precio/Variación/Comprar no entran en ≤760px — mismo .op-table-wrap
@@ -1409,7 +1523,10 @@ const DOLAR_STRIP: DolarStripRow[] = [
     }
     .op-acc-chip.pos { background: var(--pos-bg); border-color: var(--pos-line); color: var(--pos); }
     .op-acc-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
-    .op-acc-buy { margin-left: auto; flex-shrink: 0; height: 32px; padding: 0 14px; font-size: 12.5px; }
+    /* .op-acc-card entera es clickeable (ver template, comprarDirecto en el
+       click del div) — la flecha sólo indica que la card es interactiva,
+       ya no hay botón "Comprar" propio dentro de la card. */
+    .op-acc-arrow { margin-left: auto; flex-shrink: 0; font-size: 15px; }
 
     /* "Ver todas las Acciones", sólo mobile (.op-acciones-cards ya oculta en
        desktop). Mismo patrón que .op-back/.op-empty-cta. */
@@ -1463,43 +1580,6 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .orr-val { font-size: 15px; font-weight: 600; color: var(--ink); }
     .orr-chevron { color: var(--ink-3); font-size: 15px; line-height: 1; flex-shrink: 0; }
 
-    /* Destacados — grilla fija de 2 columnas. Tarjeta clickeable (abre
-       Ficha, ver selectSymbol). Layout de 2 filas fijas en vez del overlay
-       anterior (símbolo+botón arriba con position:absolute, precio+% sueltos
-       abajo con otra alineación — leía desprolijo):
-       - .om-top: símbolo a la izquierda, badge de variación (con flecha
-         direccional) a la derecha — misma fila, alineados.
-       - .om-bottom: precio a la izquierda, botón Comprar a la derecha,
-         mismo nivel — ya NO es absolute, participa del flujo normal. */
-    .op-movers-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .op-mover {
-      display: flex; flex-direction: column; gap: 8px;
-      padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r);
-      cursor: pointer; transition: border-color .12s, background .12s;
-    }
-    .op-mover:hover { border-color: var(--line-2); background: var(--accent-sf); }
-    .om-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .om-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .om-sym { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--ink); }
-    .om-px { font-size: 13px; color: var(--ink-2); }
-    .om-chip-arrow { font-size: 8px; margin-right: 1px; }
-
-    /* La primera card de Destacados (pedido #3): destacados() ya viene
-       ordenado por variación, así que i===0 es EL mayor gainer/loser del
-       momento, no una más de 4 iguales. Mismo patrón "zona destacada" que
-       .op-home-highlight (barra izquierda sólida) pero en la familia
-       semántica pos/neg (ya usada por .om-chip) en vez del acento —
-       corresponde: esto es dirección de mercado, no identidad de marca.
-       Wash tenue de fondo (no sólido, para no competir con el hover) +
-       padding levemente mayor + símbolo/precio más grandes que el resto de
-       las 3 cards "normales" del grid. */
-    .op-mover.op-mover-top {
-      grid-column: 1 / -1;
-      padding: 13px 14px;
-      border-left: 4px solid var(--line);
-    }
-    .op-mover.op-mover-top.pos { background: var(--pos-bg); border-left-color: var(--pos); }
-    .op-mover.op-mover-top.neg { background: var(--neg-bg); border-left-color: var(--neg); }
     /* Hover propio (no el --accent-sf genérico de .op-mover:hover): el wash
        pos/neg es la jerarquía visual pedida, tapar todo con el wash de
        acento en hover la anularía — sólo se oscurece el borde. */
@@ -1586,20 +1666,20 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .op-table-wrap td.num.pos { color: var(--pos); font-weight: 600; }
     .op-table-wrap td.num.neg { color: var(--neg); font-weight: 600; }
 
-    /* Columna "Comprar" de las tablas (Panel y Acciones de Home): botón
-       visible por fila, no escondido en un menú. stopPropagation en el click
-       evita reabrir Ficha (la fila sigue siendo clickeable aparte, ver
-       selectSymbol) — mismo patrón que "Comprar más"/"Vender" de Cartera. */
+    /* Columna de acción de las tablas (Panel y Acciones de Home): ya NO
+       tiene un botón "Comprar" por fila — toda la fila es clickeable
+       (.op-row-buy, ver template) y ejecuta la misma acción de compra
+       directa que antes hacía el botón. Sólo queda una flecha sutil
+       (.op-row-arrow) como indicador visual al final de la fila. */
     .op-th-accion { width: 1%; }
     .op-td-accion { white-space: nowrap; }
-    .op-buy-row-btn {
-      height: 26px; padding: 0 10px; border: 1px solid var(--accent); border-radius: var(--r-sm);
-      background: var(--accent-sf); color: var(--accent-2);
-      font-family: var(--font-ui); font-size: 11.5px; font-weight: 700; cursor: pointer;
-      transition: background .12s, transform .04s;
+    .op-row-buy:hover td { background: var(--accent-sf); }
+    .op-row-arrow {
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--ink-3); font-size: 16px; line-height: 1;
+      transition: color .12s, transform .12s;
     }
-    .op-buy-row-btn:hover { background: var(--accent); color: var(--surface); }
-    .op-buy-row-btn:active { transform: translateY(1px); }
+    .op-row-buy:hover .op-row-arrow { color: var(--accent-2); transform: translateX(2px); }
     .opt-sym { font-family: var(--font-mono); font-weight: 600; }
     .opt-desc { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); font-family: var(--font-ui); }
     tr.op-buy td { background: var(--accent-sf); }
@@ -1637,18 +1717,91 @@ const DOLAR_STRIP: DolarStripRow[] = [
       box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--line-2);
     }
 
-    /* Ficha — contenedor del gráfico: card con borde y radio, igual que tablas */
+    /* Ficha/Ticket — contenedor del gráfico: card con borde y radio, igual
+       que tablas. */
     .fc-wrap {
       border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
       padding: 16px;
     }
-    .fc-svg { width: 100%; height: 148px; display: block; }
-    .fc-line { fill: none; stroke-width: 2; }
-    .fc-line.pos { stroke: var(--pos); }
+    /* fc-row: plot (SVG + overlays de fecha/tooltip) a la izquierda, eje Y
+       (precios) en columna angosta a la derecha — layout real en HTML/CSS,
+       no dentro del SVG. */
+    .fc-row { display: flex; align-items: stretch; gap: 0; }
+    /* fc-plot: única superficie position:relative que comparten el SVG y
+       los overlays HTML (.fc-x-label/.fc-tooltip) — todos anclados a ESTA
+       caja con % (top/left), así que cuadran sin importar el aspect ratio
+       real que termine teniendo el SVG en pantalla. padding-bottom reserva
+       el renglón de las fechas debajo del plot; sin ese padding, las
+       etiquetas absolutas (top:100%) quedarían pegadas al borde inferior
+       de la card en vez de tener su propio renglón. */
+    .fc-plot {
+      position: relative; flex: 1; min-width: 0;
+      height: 200px; padding-bottom: 22px; cursor: crosshair;
+    }
+    .fc-svg { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - 22px); display: block; }
+    .fc-line { stroke-width: 2; }
+    .fc-line.pos { stroke: #059669; }
     .fc-line.neg { stroke: var(--neg); }
-    .fc-area { opacity: .12; }
-    .fc-area.pos { fill: var(--pos); }
-    .fc-area.neg { fill: var(--neg); }
+    /* fc-area: <path> con fill="url(#fcAreaGrad…)" seteado inline desde el
+       template (ver chartLayout().areaPath + linearGradient en <defs>) —
+       degradado verde/rojo a transparente, sin opacidad plana por CSS. El
+       FIX real del "bloque sólido" no es esta regla: es que el atributo
+       "d" del path ahora baja a la base DESPUÉS de recorrer toda la curva
+       punto a punto (ver comentario en chartLayout()), en vez de cerrar
+       con una diagonal directa que dejaba mal definida el área rellenada. */
+    .fc-area { stroke: none; }
+
+    /* Gridlines horizontales sutiles (eje Y) — punteadas, no compiten
+       visualmente con la curva. Sin texto: la marca de precio vive en el
+       overlay .fc-axis-y de al lado (ver template), nunca en un <text> del
+       SVG (con preserveAspectRatio="none" el texto se deforma al estirar). */
+    .fc-grid-line { stroke: #f3f4f6; stroke-width: 1; stroke-dasharray: 4 4; }
+
+    /* Eje Y (precios): columna angosta a la derecha del plot, cada label
+       posicionado en top:% (mismo % que su gridline, ver gridLines().yPct)
+       — position:absolute dentro de esta columna, nunca dentro del SVG. */
+    .fc-axis-y { position: relative; flex: 0 0 auto; width: 52px; height: 200px; }
+    .fc-axis-y-label {
+      position: absolute; left: 6px; transform: translateY(-50%);
+      font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); white-space: nowrap;
+    }
+
+    /* Eje X (fechas): overlay HTML debajo del plot (dentro de fc-plot,
+       top:100% = el padding-bottom reservado arriba) — cada label
+       centrado en su left:%, nunca dentro del SVG. */
+    .fc-x-label {
+      position: absolute; top: 100%; margin-top: 4px; transform: translateX(-50%);
+      font-family: var(--font-ui); font-size: 10px; color: var(--ink-3); white-space: nowrap;
+    }
+
+    /* Crosshair vertical + punto sobre la curva — el trazo usa
+       vector-effect="non-scaling-stroke" (ver template) para no deformarse
+       con el stretch no uniforme del viewBox. */
+    .fc-crosshair-x { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+    .fc-crosshair-dot { stroke: var(--surface); stroke-width: 1.5; pointer-events: none; }
+    .fc-crosshair-dot.pos { fill: #059669; }
+    .fc-crosshair-dot.neg { fill: var(--neg); }
+
+    /* Tooltip flotante del crosshair: overlay HTML dentro de fc-plot,
+       sigue al mouse en X (left:%, ver chartHoverXPct() en el component) —
+       tipografía real, nunca deformada. */
+    .fc-tooltip {
+      position: absolute; top: 8px; z-index: 2;
+      display: flex; flex-direction: column; gap: 1px;
+      padding: 5px 9px; border-radius: var(--r-sm);
+      background: var(--ink); color: var(--surface);
+      font-size: 11px; line-height: 1.3; white-space: nowrap;
+      transform: translateX(-50%); pointer-events: none;
+      box-shadow: var(--shadow-sm);
+    }
+    .fc-tooltip-date { color: #cfcfd2; font-size: 10px; }
+    .fc-tooltip-price { font-weight: 700; }
+
+    @media (max-width: 480px) {
+      /* Eje Y más angosto en mobile — los precios suelen ser cortos y el
+         plot necesita todo el ancho posible en pantallas chicas. */
+      .fc-axis-y { width: 40px; }
+    }
 
     /* Ficha — mini-libro de puntas, colapsable */
     .op-book-toggle {
@@ -1744,6 +1897,20 @@ const DOLAR_STRIP: DolarStripRow[] = [
       transition: border-color .12s, box-shadow .12s;
     }
     .op-select:focus, .op-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sf); }
+    /* Menú desplegable (options) del <select> nativo: mismo radio que el
+       botón (--r-sm) y hover/active en un azul suave (--accent-sf) en vez
+       del azul fuerte "Highlight" que aplica el navegador por defecto. */
+    .op-select option {
+      border-radius: var(--r-sm);
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .op-select option:hover,
+    .op-select option:focus,
+    .op-select option:checked {
+      background: var(--accent-sf);
+      color: var(--ink);
+    }
     .op-input.num { font-family: var(--font-mono); }
     /* Monto a invertir — protagonista de la pantalla, mismo tratamiento que
        Panel usa para precios destacados (mono, bold, tamaño elevado). */
@@ -1826,8 +1993,10 @@ const DOLAR_STRIP: DolarStripRow[] = [
        abajo) los toggles puedan bajar de línea sin romper el buscador ni el
        botón Cartera, que se mantienen flex-shrink:0/flex:1 como ya estaban. */
     .op-home-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
-    .op-home-head .op-search-wrap { flex: 1 1 220px; min-width: 0; }
-    .op-home-head .op-top-mover { flex-shrink: 0; }
+    .op-home-head .op-search-wrap { flex: 0 1 260px; min-width: 0; order: 1; margin-right: auto; }
+    .op-home-head .op-top-dolar { flex-shrink: 0; order: 2; }
+    .op-home-head .op-top-mover { flex-shrink: 0; order: 3; }
+    .op-home-head .op-cartera-btn { order: 4; }
     .op-cartera-btn { flex-shrink: 0; position: relative; display: inline-flex; align-items: center; gap: 6px; height: 40px; }
 
     /* Widget compacto de Destacados, al lado del buscador (pedido de Elio,
@@ -1877,6 +2046,21 @@ const DOLAR_STRIP: DolarStripRow[] = [
     .otm-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
     .op-top-mover-buy { flex-shrink: 0; height: 26px; }
     .op-top-mover-empty { padding: 0; font-size: 12px; }
+
+    /* Panel de Dólar compacto de la barra superior, al lado de "Destacada"
+       (ver .op-top-mover arriba) — misma altura (40px) para alinear en la
+       fila. Reusa dolarStrip del component, piel propia en vez de la card
+       .op-dolares completa. */
+    .op-top-dolar {
+      display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 14px;
+      border: 1px solid var(--line); border-radius: var(--r);
+      background: var(--surface);
+    }
+    .otd-item { display: flex; align-items: baseline; gap: 5px; }
+    .otd-lbl {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+    }
+    .otd-val { font-size: 13px; font-weight: 600; color: var(--ink); }
     .op-cartera-badge {
       position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px;
       background: var(--pos); color: var(--surface); font-size: 10px; font-weight: 700;
@@ -1900,7 +2084,6 @@ const DOLAR_STRIP: DolarStripRow[] = [
 
     /* Mismo breakpoint que .mosaic de cotizaciones.component.css (1000px). */
     @media (max-width: 1000px) {
-      .op-home-mosaic { grid-template-columns: 1fr; }
       .op-ficha-mosaic { grid-template-columns: 1fr; }
       .op-ticket-mosaic { grid-template-columns: 1fr; }
     }
@@ -1912,8 +2095,10 @@ const DOLAR_STRIP: DolarStripRow[] = [
          Cartera) no entraría y forzaría wraps desprolijos a mitad de
          elemento. */
       .op-home-head { flex-direction: column; align-items: stretch; }
-      .op-home-head .op-search-wrap { flex: 1 1 auto; }
+      .op-home-head .op-search-wrap { flex: 1 1 auto; max-width: none; }
+      .op-search { max-width: none; }
       .op-top-mover { justify-content: space-between; }
+      .op-top-dolar { justify-content: space-between; }
       .op-dolares-row { flex-direction: column; }
       .op-dollar-item { padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
       .op-dollar-item:not(:first-child) { padding-top: 8px; }
@@ -1935,7 +2120,6 @@ const DOLAR_STRIP: DolarStripRow[] = [
       .op-acciones-cards { display: flex; }
       .op-ref-list { grid-template-columns: 1fr; }
       .op-ref-row { flex-wrap: wrap; }
-      .op-movers-grid { grid-template-columns: 1fr; }
       .op-fondos-grid { grid-template-columns: 1fr; }
       .op-result { grid-template-columns: 72px 1fr auto; }
       .or-desc { display: none; }
@@ -1948,11 +2132,33 @@ const DOLAR_STRIP: DolarStripRow[] = [
 })
 export class OperarComponent implements OnInit {
   private http = inject(HttpClient);
+  private router = inject(Router);
+
+  // Hidratación de estado por ruta (/operar/:ticker, ver app.routes.ts):
+  // bindeados vía withComponentInputBinding (app.config.ts) desde el param
+  // de ruta `ticker` y los query params `tipo`/`origin` — sin servicio de
+  // navegación propio ni estado intermedio. Cualquier click en un activo o
+  // en "Comprar" navega directo a esta ruta (ver goToOrder/comprarDirecto/
+  // comprarMasDesdeCartera/venderDesdeCartera más abajo) y el effect
+  // `hydrateFromRoute` monta directo la pantalla de orden (gráfico + Puntas
+  // + formulario), sin pasar por Ficha ni por ningún resumen previo.
+  ticker = input<string | null>(null);
+  tipo = input<TicketTipoOperacion>('compra');
+  origin = input<'ficha' | 'cartera' | 'panel' | 'home'>('home');
 
   pills: InstrumentPill[] = INSTRUMENT_PILLS;
   dolarStrip: DolarStripRow[] = DOLAR_STRIP;
   currencyPills = CURRENCY_PILLS;
   chartRangos = CHART_RANGOS;
+  // Expuestos al template para el viewBox del gráfico (ver .fc-svg) — el
+  // template no puede leer constantes de módulo directamente.
+  chartW = CHART_W;
+  chartH = CHART_H;
+  // Rojo semántico para el gradiente del área en tramos negativos (--neg del
+  // ui-kit resuelve a este mismo tono) — SVG <stop stop-color> no acepta
+  // var(--custom-prop) en todos los navegadores, así que va hardcodeado acá,
+  // igual que el verde #059669 pedido para la línea/área positiva.
+  negColor = '#dc2626';
 
   subview = signal<OperarSubview>('home');
   selectedInstrumentId = signal<InstrumentId | null>(null);
@@ -2126,13 +2332,32 @@ export class OperarComponent implements OnInit {
     this.moverRotationPaused.set(false);
   }
 
-  // Fetch de la serie histórica al entrar a Ficha o al cambiar de rango
-  // (cacheado por symbol+rango en loadHistorico, ver más abajo).
+  // Fetch de la serie histórica al entrar a Ficha O al Ticket (pantalla de
+  // compra, con Puntas+Orden — ver template) o al cambiar de rango
+  // (cacheado por symbol+rango en loadHistorico, ver más abajo). El Ticket
+  // también muestra el gráfico (ver .op-chart-card en el template de
+  // 'ticket'), así que necesita la misma data que Ficha.
   private fichaFetch = effect(() => {
     const sym = this.selectedSymbol();
     const rango = this.chartRango();
-    if (this.subview() !== 'ficha' || !sym) return;
+    const view = this.subview();
+    if ((view !== 'ficha' && view !== 'ticket') || !sym) return;
     this.loadHistorico(sym, rango);
+  });
+
+  // Hidratación directa desde /operar/:ticker (ver ticker/tipo/origin input()
+  // arriba): cuando el param de ruta cambia (navegación por URL, back/forward,
+  // o refresh de página), monta la pantalla de orden (Ticket: gráfico +
+  // Puntas + formulario) para ESE símbolo sin pasar por Home/Panel/Ficha —
+  // mismo estado que dejaría openTicket(), pero disparado por la ruta en vez
+  // de por un click ya procesado en memoria. Bypassea cualquier vista
+  // intermedia: no hay modal ni resumen previo entre el click y esta pantalla.
+  private hydrateFromRoute = effect(() => {
+    const t = this.ticker();
+    if (!t) return;
+    const symbol = decodeURIComponent(t).toUpperCase();
+    if (this.selectedSymbol() === symbol && this.subview() === 'ticket') return;
+    this.openTicket(this.tipo(), symbol, this.origin());
   });
 
   searchResults = computed<PanelRow[]>(() => {
@@ -2156,6 +2381,35 @@ export class OperarComponent implements OnInit {
   homeInstrumentRight = signal<InstrumentId>(loadHomeColRight() ?? 'cedears');
   homeInstrumentLabelLeft = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrumentLeft())?.label ?? '');
   homeInstrumentLabelRight = computed<string>(() => this.pills.find((p) => p.id === this.homeInstrumentRight())?.label ?? '');
+
+  // Dropdown custom de instrumento (reemplaza el <select> nativo, ver
+  // .op-dropdown en el template): abre/cierra por click en el botón, se
+  // cierra al elegir una opción o al clickear afuera (ver onDocumentClick,
+  // registrado una sola vez en el constructor).
+  dropdownOpenLeft = signal(false);
+  dropdownOpenRight = signal(false);
+
+  toggleDropdownLeft(ev: Event) {
+    ev.stopPropagation();
+    this.dropdownOpenRight.set(false);
+    this.dropdownOpenLeft.set(!this.dropdownOpenLeft());
+  }
+
+  toggleDropdownRight(ev: Event) {
+    ev.stopPropagation();
+    this.dropdownOpenLeft.set(false);
+    this.dropdownOpenRight.set(!this.dropdownOpenRight());
+  }
+
+  pickHomeInstrumentLeft(id: InstrumentId) {
+    this.selectHomeInstrumentLeft(id);
+    this.dropdownOpenLeft.set(false);
+  }
+
+  pickHomeInstrumentRight(id: InstrumentId) {
+    this.selectHomeInstrumentRight(id);
+    this.dropdownOpenRight.set(false);
+  }
 
   private rowsForInstrument(id: InstrumentId): PanelRow[] {
     const rows: PanelRow[] = id === 'cedears' ? this.cedearsRows() : (
@@ -2362,36 +2616,139 @@ export class OperarComponent implements OnInit {
     return (+d[d.length - 1].ultimoPrecio || 0) >= (+d[0].ultimoPrecio || 0);
   });
 
-  // Polyline del gráfico: cierres normalizados a un viewBox fijo de 600x160.
-  // IOL no trae un campo "cierre" en la serie histórica: en una serie diaria,
-  // `ultimoPrecio` de cada día ES el cierre de esa rueda (ver operar.types.ts).
-  chartPoints = computed<string>(() => {
+  // Layout completo del gráfico: línea + área (<path> con comandos
+  // explícitos, nunca <polygon>/<polyline>) y las posiciones (en %, para los
+  // overlays HTML) de gridlines de precio (Y) y etiquetas de fecha (X).
+  // viewBox fijo CHART_W x CHART_H (ver constantes arriba). IOL no trae un
+  // campo "cierre" en la serie histórica: en una serie diaria, `ultimoPrecio`
+  // de cada día ES el cierre de esa rueda (ver operar.types.ts).
+  chartLayout = computed<ChartLayout | null>(() => {
     const d = this.historicoData();
-    if (d.length < 2) return '';
-    const W = 600, H = 160, PAD = 6;
+    if (d.length < 2) return null;
+
+    const x0 = CHART_PAD.left;
+    const x1 = CHART_W - CHART_PAD.right;
+    const y0 = CHART_PAD.top;
+    const y1 = CHART_H - CHART_PAD.bottom;
+
     const closes = d.map((p) => +p.ultimoPrecio || 0);
     const min = Math.min(...closes);
     const max = Math.max(...closes);
-    const span = max - min || 1;
-    const stepX = (W - PAD * 2) / (d.length - 1);
-    return closes
-      .map((c, i) => {
-        const x = PAD + i * stepX;
-        const y = H - PAD - ((c - min) / span) * (H - PAD * 2);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      })
+    // span nunca 0 (serie plana) para no dividir por cero; el padding
+    // vertical real ya lo da CHART_PAD.top/bottom en píxeles del viewBox
+    // (15% arriba/abajo, ver comentario de las constantes) — acá sólo se
+    // normaliza el precio al 0..1 del área útil (y0..y1).
+    const span = max - min || Math.max(max, 1) * 0.01;
+
+    const stepX = (x1 - x0) / (d.length - 1);
+    // BUG REAL de la versión anterior: `(+p.ultimoPrecio || 0 - min)` — por
+    // precedencia de operadores en JS, `||` liga MÁS DÉBIL que `-`, así que
+    // esto se evaluaba como `(+p.ultimoPrecio) || (0 - min)`. Con
+    // ultimoPrecio truthy (cualquier precio > 0), el operando derecho del
+    // `||` nunca se usaba y la resta "- min" quedaba completamente
+    // descartada — el numerador terminaba siendo el precio CRUDO, no
+    // "precio - min". Eso rompía la normalización: alturas gigantes/
+    // negativas fuera de la ventana visible → línea aplastada contra un
+    // borde (invisible) y el <path> del área, que sí llegaba a cerrar en
+    // la base, terminaba pintando el rectángulo completo. Fix: paréntesis
+    // explícitos, `(+p.ultimoPrecio || 0) - min`.
+    const points: ChartPoint[] = d.map((p, i) => {
+      const price = +p.ultimoPrecio || 0;
+      return {
+        x: x0 + i * stepX,
+        y: y1 - ((price - min) / span) * (y1 - y0),
+        price,
+        dateIso: p.fechaHora,
+      };
+    });
+
+    const linePath = points
+      .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(2)},${pt.y.toFixed(2)}`)
       .join(' ');
+    // Área: sube por la curva (linePath) y SÓLO ahí baja verticalmente por
+    // xN hasta la base (height), corre por la base hasta x0 y cierra (Z) —
+    // nunca una diagonal directa del último punto al primero.
+    const last = points[points.length - 1];
+    const first = points[0];
+    const areaPath =
+      `M ${first.x.toFixed(2)},${CHART_H.toFixed(2)} ` +
+      `${points.map((pt) => `L ${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ')} ` +
+      `L ${last.x.toFixed(2)},${CHART_H.toFixed(2)} ` +
+      `L ${first.x.toFixed(2)},${CHART_H.toFixed(2)} Z`;
+
+    // Gridlines horizontales con marca de precio (overlay HTML, ver
+    // .fc-axis-y en el template) — posición en % del alto del contenedor,
+    // de max (arriba) a min (abajo).
+    const gridLines: ChartGridLine[] = Array.from({ length: CHART_GRID_STEPS + 1 }, (_, i) => {
+      const t = i / CHART_GRID_STEPS;
+      const price = max - t * (max - min);
+      const y = y0 + t * (y1 - y0);
+      return { y, yPct: (y / CHART_H) * 100, label: this.fmt(price) };
+    });
+
+    // Etiquetas de fecha (overlay HTML, ver .fc-axis-x) repartidas por
+    // índice — siempre incluye el primer y el último punto.
+    const rango = this.chartRango();
+    const n = Math.min(CHART_X_LABELS, points.length);
+    const xLabels: ChartXLabel[] = Array.from({ length: n }, (_, i) => {
+      const idx = n === 1 ? 0 : Math.round((i / (n - 1)) * (points.length - 1));
+      const pt = points[idx];
+      return { xPct: (pt.x / CHART_W) * 100, label: formatChartAxisDate(pt.dateIso, rango) };
+    });
+
+    return { linePath, areaPath, gridLines, xLabels, points, plot: { x0, x1, y0, y1 } };
   });
 
-  // Área bajo la línea del gráfico: polígono que va de la base a la línea
-  // y vuelve, mismo viewBox que chartPoints.
-  chartAreaPoints = computed<string>(() => {
-    const pts = this.chartPoints();
-    if (!pts) return '';
-    const W = 600, H = 160, PAD = 6;
-    const baseline = `${PAD},${H - PAD} ${W - PAD},${H - PAD}`;
-    return `${baseline} ${pts}`;
-  });
+  // Crosshair (hover): punto más cercano al cursor sobre el eje X, con
+  // fecha completa + precio exacto para el tooltip. null = mouse afuera del
+  // gráfico (oculta crosshair/tooltip en el template).
+  chartHover = signal<ChartPoint | null>(null);
+
+  // `plot` es el div .fc-plot (mismo tamaño real que el SVG que contiene,
+  // ver template) — se usa su getBoundingClientRect() en vez del <svg>
+  // directamente para que el cálculo no dependa de cómo el navegador mida
+  // internamente el SVG con preserveAspectRatio="none".
+  onChartMove(ev: MouseEvent, plot: Element) {
+    const layout = this.chartLayout();
+    if (!layout || !layout.points.length) return;
+    const rect = plot.getBoundingClientRect();
+    // Mapea la posición del mouse (px reales del elemento) al espacio del
+    // viewBox (CHART_W x CHART_H) — necesario porque el SVG se estira a un
+    // ancho variable vía CSS (ver .fc-svg, width:100%). El crosshair/tooltip
+    // se posicionan en % (chartHoverXPct), así que da igual el aspect ratio
+    // real del elemento en pantalla.
+    const relX = ((ev.clientX - rect.left) / rect.width) * CHART_W;
+    let nearest = layout.points[0];
+    let bestDist = Infinity;
+    for (const pt of layout.points) {
+      const dist = Math.abs(pt.x - relX);
+      if (dist < bestDist) { bestDist = dist; nearest = pt; }
+    }
+    this.chartHover.set(nearest);
+  }
+
+  onChartLeave() {
+    this.chartHover.set(null);
+  }
+
+  // Posición X del punto bajo el cursor, en % del ancho — usada tanto por
+  // el crosshair SVG (convertido de vuelta a unidades de viewBox) como por
+  // el tooltip HTML (left en %, ver template).
+  chartHoverXPct(): number {
+    const h = this.chartHover();
+    return h ? (h.x / CHART_W) * 100 : 0;
+  }
+
+  chartHoverYPct(): number {
+    const h = this.chartHover();
+    return h ? (h.y / CHART_H) * 100 : 0;
+  }
+
+  // Etiqueta de fecha completa del punto bajo el crosshair, para el tooltip.
+  chartHoverDateLabel(): string {
+    const h = this.chartHover();
+    return h ? formatChartTooltipDate(h.dateIso) : '';
+  }
 
   // Precio efectivo del Paso 1: precio límite si el usuario eligió esa
   // modalidad; si no, el lado del libro que corresponde según la dirección:
@@ -2422,6 +2779,15 @@ export class OperarComponent implements OnInit {
 
   ngOnInit() {
     // El prefetch corre desde el effect de arriba (subview() ya arranca en 'home').
+  }
+
+  // Cierra el dropdown custom de instrumento (ver .op-dropdown) al clickear
+  // afuera — el toggle del botón hace stopPropagation, así que este listener
+  // global sólo se dispara con clicks fuera del botón/menú.
+  @HostListener('document:click')
+  closeDropdowns() {
+    if (this.dropdownOpenLeft()) this.dropdownOpenLeft.set(false);
+    if (this.dropdownOpenRight()) this.dropdownOpenRight.set(false);
   }
 
   private defaultTicketState(): TicketState {
@@ -2600,19 +2966,37 @@ export class OperarComponent implements OnInit {
     return s.dir === 'asc' ? '▲' : '▼';
   }
 
-  // Acepta cualquier fila con symbol (PanelRow o MoverRow de Destacados) —
-  // Ficha sólo necesita el symbol para buscar la fila cacheada (selectedRow).
+  // REGLA 1 (bypass de vistas intermedias): clickear un activo en cualquier
+  // listado (buscador, Destacados, Home, Panel) ya NO abre Ficha — navega
+  // directo a /operar/{ticker}, que hidrata la pantalla de orden completa
+  // (gráfico + Puntas + formulario, ver hydrateFromRoute arriba). Sin
+  // resumen previo ni paso intermedio entre el click y la orden.
   selectSymbol(row: { symbol: string }) {
-    this.selectedSymbol.set(row.symbol);
-    this.chartRango.set('1M');
-    this.fichaBookOpen.set(true);
-    this.subview.set('ficha');
+    this.goToOrder(row.symbol, 'compra', 'home');
+  }
+
+  // Navegación real por Router (REGLA 1/2 del refactor): el onClick invoca
+  // directo la ruta de operación con el ticker por parámetro — Angular
+  // Router hidrata OperarComponent vía withComponentInputBinding (ver
+  // app.config.ts) y hydrateFromRoute monta el gráfico/Puntas/Orden ya
+  // resueltos, sin pasar por ningún estado intermedio en memoria.
+  private goToOrder(symbol: string, tipo: TicketTipoOperacion, origin: 'ficha' | 'cartera' | 'panel' | 'home') {
+    this.router.navigate(['/operar', symbol], { queryParams: { tipo, origin } });
   }
 
   selectRango(r: ChartRango) {
     this.chartRango.set(r);
   }
 
+  // Serie histórica (Ficha/Ticket): Cohen es la fuente PRIMARIA (get_trade_history
+  // vía Primary/XOMS, ver docs/api-cohen.md §2/§5); si el feed de Cohen no
+  // está configurado, falla o devuelve vacío/null (símbolo sin trades en el
+  // rango, feed caído, plazo sin universo), cae a IOL — mismo patrón
+  // Cohen→IOL que ya usa fetchCedears() en app.ts. Regla 1: un [] o null de
+  // Cohen NUNCA se considera respuesta válida, siempre dispara el fallback a
+  // IOL (ver switchMap abajo). Regla 2: si IOL TAMBIÉN devuelve [] (sin
+  // credenciales en dev, símbolo sin serie real, etc.), se genera una serie
+  // mock (buildMockHistorico) para que el gráfico nunca quede en blanco.
   private loadHistorico(symbol: string, rango: ChartRango) {
     const key = `${symbol}:${rango}`;
     const cached = this.historicoCache.get(key);
@@ -2621,18 +3005,40 @@ export class OperarComponent implements OnInit {
       return;
     }
     this.historicoLoading.set(true);
-    this.http.get<HistoricoPoint[]>(`/api/iol/historico?mercado=bCBA&simbolo=${encodeURIComponent(symbol)}&rango=${rango}`).pipe(
-      catchError((err: HttpErrorResponse) => {
-        // Sin este log, un 404/500 del proxy queda indistinguible de "sin
-        // datos" (array vacío legítimo) — costó un diagnóstico entero
-        // encontrar que esto tapaba un 404 real. El fallback a [] sigue
-        // igual (estado vacío en el gráfico), pero el error ya no es mudo.
-        console.error('[Ficha] error cargando histórico', { symbol, rango, status: err.status, body: err.error });
-        return of([] as HistoricoPoint[]);
-      })
-    ).subscribe((points) => {
-      // IOL devuelve la serie más reciente primero (descendente); el gráfico
-      // necesita orden cronológico ascendente (viejo -> nuevo, izq -> der).
+    const dias = RANGO_DIAS[rango];
+
+    const iol$ = this.http
+      .get<HistoricoPoint[]>(`/api/iol/historico?mercado=bCBA&simbolo=${encodeURIComponent(symbol)}&rango=${rango}`)
+      .pipe(
+        map((points) => (Array.isArray(points) ? points : [])),
+        catchError((err: HttpErrorResponse) => {
+          // Sin este log, un 404/500 del proxy queda indistinguible de "sin
+          // datos" (array vacío legítimo) — costó un diagnóstico entero
+          // encontrar que esto tapaba un 404 real. El fallback a [] sigue
+          // igual (dispara el mock, ver abajo), pero el error ya no es mudo.
+          console.error('[Ficha] error cargando histórico (IOL)', { symbol, rango, status: err.status, body: err.error });
+          return of([] as HistoricoPoint[]);
+        }),
+        // Regla 2: IOL también vacío → serie mock, nunca [] al subscribe.
+        map((points) => (points.length ? points : buildMockHistorico(symbol, dias))),
+      );
+
+    const cohenUrl = cohenHistoricoUrl(symbol, 'H24', dias);
+    const source$ = cohenUrl
+      ? this.http.get<HistoricoPoint[]>(cohenUrl).pipe(
+          // Regla 1: [] o null de Cohen no es respuesta válida → cae a IOL
+          // (que a su vez cae al mock si también viene vacío, ver iol$).
+          map((points) => (Array.isArray(points) ? points : [])),
+          catchError(() => of([] as HistoricoPoint[])),
+          switchMap((points) => (points.length ? of(points) : iol$)),
+        )
+      : iol$;
+
+    source$.subscribe((points) => {
+      // Ambas fuentes reales pueden venir en cualquier orden (IOL: más
+      // reciente primero; Cohen: ascendente por construcción, ver feed.py);
+      // el mock ya sale ascendente. Se normaliza siempre a orden
+      // cronológico ascendente (viejo -> nuevo, izq -> der).
       const arr = (Array.isArray(points) ? points : [])
         .slice()
         .sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime());
@@ -2651,26 +3057,26 @@ export class OperarComponent implements OnInit {
   goTicket() {
     const symbol = this.selectedSymbol();
     if (!symbol) return;
-    this.openTicket('compra', symbol, 'ficha');
+    this.goToOrder(symbol, 'compra', 'ficha');
   }
 
-  // Desde Tenencias de Cartera (ver toggleTenenciaExpandida): abre el mismo
-  // Ticket sin pasar por Ficha, tipo='compra'/'venta' según la acción.
+  // Desde Tenencias de Cartera (ver toggleTenenciaExpandida): navega directo
+  // a la orden (ya no abre un Ticket "in-memory" sin ruta), tipo='compra'/
+  // 'venta' según la acción.
   comprarMasDesdeCartera(symbol: string) {
-    this.openTicket('compra', symbol, 'cartera');
+    this.goToOrder(symbol, 'compra', 'cartera');
   }
 
   venderDesdeCartera(symbol: string) {
-    this.openTicket('venta', symbol, 'cartera');
+    this.goToOrder(symbol, 'venta', 'cartera');
   }
 
   // Botón "Comprar" directo desde una fila de Panel o de Home (Acciones/
-  // Destacados): abre el Ticket para ESE symbol sin pasar por Ficha —
-  // mismo mecanismo que goTicket()/comprarMasDesdeCartera(), sólo cambia el
-  // origin para que "← Volver" regrese a Panel/Home en vez de a Ficha.
-  // origin coincide 1:1 con el signal subview correspondiente.
+  // Destacados/buscador): REGLA 1 — bypassea Ficha y cualquier resumen
+  // previo, navega directo a /operar/{ticker} (ver goToOrder). origin
+  // decide a dónde vuelve "← Volver" (goBackFromTicketForm).
   comprarDirecto(symbol: string, origin: 'panel' | 'home') {
-    this.openTicket('compra', symbol, origin);
+    this.goToOrder(symbol, 'compra', origin);
   }
 
   private openTicket(tipo: TicketTipoOperacion, symbol: string, origin: 'ficha' | 'cartera' | 'panel' | 'home') {
@@ -2688,7 +3094,13 @@ export class OperarComponent implements OnInit {
   // botón "Comprar" de una ficha, Cartera si vino de Tenencias, o Panel/Home
   // si vino del botón "Comprar" directo de una fila (ver comprarDirecto).
   goBackFromTicketForm() {
-    this.subview.set(this.ticketOrigin());
+    const dest = this.ticketOrigin();
+    this.subview.set(dest);
+    // Vuelve a home cuando la orden se abrió por navegación directa (ver
+    // goToOrder) — saca al usuario de /operar/{ticker} para que la URL
+    // refleje la vista real. Cartera/Panel siguen resolviéndose en memoria
+    // (no tienen ruta propia todavía), sólo home limpia el path.
+    if (dest === 'home' || dest === 'panel') this.router.navigate(['/operar']);
   }
 
   toggleTenenciaExpandida(symbol: string) {
@@ -2813,6 +3225,9 @@ export class OperarComponent implements OnInit {
 
   goHome() {
     this.subview.set('home');
+    // Si estábamos en /operar/{ticker} (navegación directa, ver goToOrder),
+    // limpia la URL a /operar para que quede consistente con la vista.
+    if (this.ticker()) this.router.navigate(['/operar']);
   }
 
   goCartera() {

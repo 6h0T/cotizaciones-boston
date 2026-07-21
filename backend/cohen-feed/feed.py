@@ -8,6 +8,9 @@ frontend lo consuma sin cambios de modelo:
 
     GET http://127.0.0.1:8125/cedears?plazo=t0   → libro CI      (CedearRow[])
     GET http://127.0.0.1:8125/cedears?plazo=t1   → libro 24hs    (CedearRow[])
+    GET http://127.0.0.1:8125/historico?symbol=AAPL&plazo=t1&dias=30
+                                                  → serie diaria (HistoricoPoint[],
+                                                    mismo contrato que /api/iol/historico)
     GET http://127.0.0.1:8125/health             → estado de la conexión
 
 Uso:
@@ -31,6 +34,7 @@ import re
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -136,6 +140,94 @@ class Books:
 
 
 BOOKS = Books()
+
+# Referencia al módulo pyRofex ya autenticado, seteada por start_live() al
+# conectar con éxito. /historico la usa para pedir get_trade_history() bajo
+# demanda (no se suscribe nada por WS para esto). None en modo --simulate o
+# mientras la auth con Cohen esté pendiente/rechazada.
+_pyrofex = None
+_rofex_lock = threading.Lock()
+
+
+def primary_ticker(base: str, plazo_app: str) -> str:
+    """Ticker Primary del ticker base de la app (leg ya incluye D/C si aplica)."""
+    plazo = '24hs' if plazo_app == 't1' else 'CI'
+    return f"MERV - XMEV - {base} - {plazo}"
+
+
+def fetch_historico(base: str, plazo_app: str, days: int) -> list[dict]:
+    """Serie histórica diaria (OHLC) de un símbolo vía pyRofex.get_trade_history,
+    agregada por día. Devuelve la MISMA forma que /api/iol/historico
+    (HistoricoPoint[]: fechaHora, apertura, maximo, minimo, ultimoPrecio,
+    volumenNominal), ascendente por fecha, para que el frontend no distinga
+    la fuente. [] si no hay conexión viva o no hay trades en el rango."""
+    if _pyrofex is None:
+        return []
+    end = datetime.utcnow()
+    start = end - timedelta(days=days)
+    ticker = primary_ticker(base, plazo_app)
+    try:
+        with _rofex_lock:
+            resp = _pyrofex.get_trade_history(
+                ticker=ticker,
+                start_date=start.strftime('%Y-%m-%d'),
+                end_date=end.strftime('%Y-%m-%d'),
+            )
+    except Exception as exc:
+        print(f"[feed] get_trade_history falló para {ticker}: {exc}")
+        return []
+
+    trades = resp.get('trades') if isinstance(resp, dict) else None
+    if not trades:
+        return []
+
+    # Agrupar trades por día (fecha del datetime del trade) y reducir a OHLC.
+    by_day: dict[str, dict] = {}
+    for t in trades:
+        ts = t.get('datetime') or t.get('date') or t.get('timestamp')
+        price = t.get('price')
+        size = t.get('size') or 0
+        if ts is None or price is None:
+            continue
+        try:
+            # pyRofex devuelve datetime ISO ("2024-01-02T14:31:00.000-03:00")
+            # o epoch ms según endpoint; se soportan ambos formatos.
+            if isinstance(ts, (int, float)):
+                dt = datetime.utcfromtimestamp(ts / 1000.0 if ts > 10**12 else ts)
+            else:
+                dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+        except Exception:
+            continue
+        day = dt.strftime('%Y-%m-%d')
+        bucket = by_day.get(day)
+        price = float(price)
+        if bucket is None:
+            by_day[day] = {
+                'fechaHora': f"{day}T00:00:00",
+                'apertura': price,
+                'maximo': price,
+                'minimo': price,
+                'ultimoPrecio': price,
+                'volumenNominal': float(size),
+                '_firstTs': dt,
+                '_lastTs': dt,
+            }
+        else:
+            if dt < bucket['_firstTs']:
+                bucket['apertura'] = price
+                bucket['_firstTs'] = dt
+            if dt >= bucket['_lastTs']:
+                bucket['ultimoPrecio'] = price
+                bucket['_lastTs'] = dt
+            bucket['maximo'] = max(bucket['maximo'], price)
+            bucket['minimo'] = min(bucket['minimo'], price)
+            bucket['volumenNominal'] += float(size)
+
+    out = sorted(by_day.values(), key=lambda r: r['fechaHora'])
+    for r in out:
+        r.pop('_firstTs', None)
+        r.pop('_lastTs', None)
+    return out
 
 
 # ── Mapeo Primary → CedearRow ────────────────────────────────────────────────
@@ -258,8 +350,11 @@ def start_live(env: dict[str, str]) -> None:
                     environment=Environment.LIVE,
                 )
                 BOOKS.auth = "ok"
+                global _pyrofex
+                _pyrofex = pyRofex
             except Exception as exc:
                 BOOKS.auth = "rejected"
+                _pyrofex = None
                 print(
                     f"[feed] auth rechazada por {api_url}: {exc}\n"
                     "  (hacen falta credenciales de MATRIZ con API habilitada)"
@@ -369,6 +464,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(BOOKS.snapshot(plazo))
         elif url.path == "/health":
             self._send_json(BOOKS.health())
+        elif url.path == "/historico":
+            if FEED_TOKEN and self.headers.get("X-Feed-Token") != FEED_TOKEN:
+                self._send_json({"error": "unauthorized"}, 401)
+                return
+            qs = parse_qs(url.query)
+            base = (qs.get("symbol") or [""])[0].strip().upper()
+            plazo = (qs.get("plazo") or ["t1"])[0]
+            if not base:
+                self._send_json({"error": "falta symbol"}, 400)
+                return
+            if plazo not in ("t0", "t1"):
+                plazo = "t1"
+            try:
+                dias = int((qs.get("dias") or ["30"])[0])
+            except ValueError:
+                dias = 30
+            dias = max(1, min(dias, 1825))
+            self._send_json(fetch_historico(base, plazo, dias))
         else:
             self._send_json({"error": "not found"}, 404)
 

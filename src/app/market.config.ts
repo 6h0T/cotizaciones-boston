@@ -159,6 +159,17 @@ export const cohenCedearsUrl = (s: Settlement): string | null => {
   return base ? `${base.replace(/\/+$/, '')}/cedears?plazo=${IOL_PLAZO[s]}` : null;
 };
 
+// Histórico diario (OHLC) de un símbolo vía Cohen (get_trade_history de
+// Primary/XOMS, ver docs/api-cohen.md). Mismo contrato de respuesta que
+// /api/iol/historico (HistoricoPoint[]) — el caller (Ficha) cae a IOL si
+// Cohen falla o devuelve vacío. `dias` reemplaza al par desde/hasta que usa
+// IOL; el mapeo ChartRango -> días vive en el caller.
+export const cohenHistoricoUrl = (symbol: string, s: Settlement, dias: number): string | null => {
+  const base = cohenFeedBase();
+  if (!base) return null;
+  return `${base.replace(/\/+$/, '')}/historico?symbol=${encodeURIComponent(symbol)}&plazo=${IOL_PLAZO[s]}&dias=${dias}`;
+};
+
 // ── Matriz de pestañas de arbitraje (moneda × plazo) ────────────────────────
 export interface ArbTab {
   id: string;

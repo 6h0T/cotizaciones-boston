@@ -2,13 +2,13 @@ import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { forkJoin, Observable, Subscription, timer } from 'rxjs';
-import { catchError, map, of, switchMap } from 'rxjs';
+import { catchError, filter, map, of, switchMap } from 'rxjs';
 import * as XLSX from 'xlsx';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
-import { OperarComponent } from './operar.component';
 import {
   ARB_TABS, DEFAULTS, ArbTab, CedearRow, Settlement, cohenCedearsUrl, iolCedearsUrl,
   bondType, noteType, INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
@@ -115,12 +115,13 @@ type View = 'arbitraje' | 'cotizaciones' | 'operaciones';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent, OperarComponent],
+  imports: [CommonModule, FormsModule, RouterOutlet, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App implements OnInit, OnDestroy {
   private http = inject(HttpClient);
+  private router = inject(Router);
 
   panels = PANELS;
   arbTabs = ARB_TABS;
@@ -189,6 +190,8 @@ export class App implements OnInit, OnDestroy {
   };
 
   private sub?: Subscription;
+  // Suscripción a router.events para el sync de deep-link (ver ngOnInit).
+  private sub2?: Subscription;
   // Guard del burst CI: evita encolar bursts t0 cuando el anterior sigue en vuelo.
   private t0InFlight = false;
 
@@ -270,10 +273,23 @@ export class App implements OnInit, OnDestroy {
     // o el navegador minimizado.
     document.addEventListener('pointerdown', this.unlockAudio, { once: true });
     document.addEventListener('keydown', this.unlockAudio, { once: true });
+
+    // Deep link directo a /operar/{ticker} (link compartido, refresh de
+    // página, back/forward del navegador): sincroniza el tab de primer
+    // nivel a 'operaciones' para que el nav de arriba refleje la URL real,
+    // sin que el usuario tenga que clickear "Operar" a mano.
+    this.sub2 = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe((e) => {
+        if (e.urlAfterRedirects.startsWith('/operar') && this.view() !== 'operaciones') {
+          this.view.set('operaciones');
+        }
+      });
   }
 
   ngOnDestroy() {
     this.sub?.unsubscribe();
+    this.sub2?.unsubscribe();
     document.removeEventListener('pointerdown', this.unlockAudio);
     document.removeEventListener('keydown', this.unlockAudio);
   }
@@ -578,6 +594,11 @@ export class App implements OnInit, OnDestroy {
     this.view.set(v);
     this.detailPanel.set(null);
     this.filter.set('');
+    // 'operaciones' ahora vive detrás del router (ver app.routes.ts /
+    // RouterOutlet en app.html) — Operar monta OperarComponent vía ruta,
+    // así que cambiar de tab navega a /operar en vez de sólo flippear el
+    // signal local.
+    if (v === 'operaciones') this.router.navigate(['/operar']);
   }
 
   openDetail(id: string) {
