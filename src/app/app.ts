@@ -2,7 +2,7 @@ import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
+import { Router, RouterOutlet, RouterLink, NavigationEnd } from '@angular/router';
 import { forkJoin, Observable, Subscription, timer } from 'rxjs';
 import { catchError, filter, map, of, switchMap } from 'rxjs';
 import * as XLSX from 'xlsx';
@@ -14,6 +14,7 @@ import {
   bondType, noteType, INDEX_SPECS, ETF_SPECS, QuoteSpec, yahooSparkUrl,
 } from './market.config';
 import { scanOpportunities, nextAlertState } from './arb-engine';
+import { saveSnapshot, loadSnapshot } from './panel-snapshot';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
 import { isMarketOpen, isValidTimeRange, saveMarketHoursOverride, getEffectiveMarketHours } from './market-hours.config';
 
@@ -115,7 +116,7 @@ type View = 'arbitraje' | 'cotizaciones' | 'operaciones';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterOutlet, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
+  imports: [CommonModule, FormsModule, RouterOutlet, RouterLink, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -538,24 +539,43 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  // Libro de CEDEARs de un plazo con prioridad Cohen → IOL. Si Cohen falla o
-  // devuelve vacío (auth pendiente, feed caído, mercado cerrado) se pide a IOL.
-  // src indica quién entregó filas; null = ninguna fuente respondió con datos.
+  // Libro de CEDEARs de un plazo con prioridad Cohen → IOL → último snapshot
+  // válido conocido (localStorage) → []. Si Cohen falla o devuelve vacío
+  // (auth pendiente, feed caído, mercado cerrado) se pide a IOL; si IOL
+  // TAMBIÉN falla o devuelve vacío, se sirve el último libro real guardado
+  // (ver panel-snapshot.ts) en vez de dejar el panel sin datos. Sólo si no
+  // hay ningún snapshot guardado (primera ejecución en un navegador limpio)
+  // se retorna vacío. src indica quién entregó filas; null = snapshot o
+  // ninguna fuente respondió con datos.
   private fetchCedears(s: Settlement): Observable<{ rows: CedearRow[]; src: CedearsSrc }> {
     const asRows = (raw: unknown): CedearRow[] => (Array.isArray(raw) ? raw : []);
+    const fromSnapshot = (): { rows: CedearRow[]; src: CedearsSrc } => {
+      const snap = loadSnapshot(s);
+      return { rows: snap ?? [], src: null };
+    };
     const iol$ = this.http.get<CedearRow[]>(iolCedearsUrl(s)).pipe(
       map((raw) => {
         const rows = asRows(raw);
-        return { rows, src: (rows.length ? 'iol' : null) as CedearsSrc };
+        if (rows.length) {
+          saveSnapshot(s, rows);
+          return { rows, src: 'iol' as CedearsSrc };
+        }
+        return fromSnapshot();
       }),
-      catchError(() => of({ rows: [] as CedearRow[], src: null as CedearsSrc }))
+      catchError(() => of(fromSnapshot()))
     );
     const cohenUrl = cohenCedearsUrl(s);
     if (!cohenUrl) return iol$;
     return this.http.get<CedearRow[]>(cohenUrl).pipe(
       map(asRows),
       catchError(() => of([] as CedearRow[])),
-      switchMap((rows) => (rows.length ? of({ rows, src: 'cohen' as CedearsSrc }) : iol$))
+      switchMap((rows) => {
+        if (rows.length) {
+          saveSnapshot(s, rows);
+          return of({ rows, src: 'cohen' as CedearsSrc });
+        }
+        return iol$;
+      })
     );
   }
 
@@ -594,11 +614,16 @@ export class App implements OnInit, OnDestroy {
     this.view.set(v);
     this.detailPanel.set(null);
     this.filter.set('');
-    // 'operaciones' ahora vive detrás del router (ver app.routes.ts /
-    // RouterOutlet en app.html) — Operar monta OperarComponent vía ruta,
-    // así que cambiar de tab navega a /operar en vez de sólo flippear el
-    // signal local.
-    if (v === 'operaciones') this.router.navigate(['/operar']);
+    // 'operaciones' vive detrás del router (ver app.routes.ts / RouterOutlet
+    // en app.html): el tab "Operaciones" es un <a routerLink="/operar"> — la
+    // propia directiva ya dispara la navegación al clickear, así que acá sólo
+    // sincronizamos el signal local para que el estado activo del nav sea
+    // instantáneo (sin esperar el NavigationEnd). Si en el futuro se llama a
+    // setView('operaciones') sin pasar por el link (ej. programático), se
+    // navega manualmente como red de seguridad.
+    if (v === 'operaciones' && !this.router.url.startsWith('/operar')) {
+      this.router.navigate(['/operar']);
+    }
   }
 
   openDetail(id: string) {

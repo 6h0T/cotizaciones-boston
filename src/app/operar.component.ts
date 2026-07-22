@@ -1,10 +1,11 @@
-import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, OnDestroy, OnInit, computed, effect, inject, input, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { forkJoin, catchError, of, timer, switchMap, map } from 'rxjs';
+import { createChart, BaselineSeries, TickMarkType, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from 'lightweight-charts';
 
 import { iolCedearsUrl, cohenHistoricoUrl, CedearRow } from './market.config';
 import {
@@ -54,86 +55,41 @@ const DOLAR_STRIP: DolarStripRow[] = [
   { label: 'CCL', value: 1432 },
 ];
 
-// Días atrás por rango del gráfico — mismo mapeo que RANGO_DIAS en
-// api/iol/historico.js (server-side), replicado acá para armar la URL de
-// Cohen (que pide `dias`, no fechas desde/hasta).
-const RANGO_DIAS: Record<ChartRango, number> = {
-  '1S': 7,
-  '1M': 30,
-  '6M': 182,
-  '1A': 365,
-  MAX: 1825,
-};
-
-// Geometría fija del SVG del gráfico histórico. REESCRITO (v2): el SVG ya
-// NO contiene ningún <text> — bug real de v1: con preserveAspectRatio="none"
-// el navegador estira los glyphs de <text> de forma no uniforme (ancho ≠
-// alto), deformándolos como goma. Ahora los ejes (precio a la derecha,
-// fechas abajo) son overlays HTML/CSS posicionados en % sobre `.fc-wrap`,
-// fuera del SVG — el texto usa tipografía real del DOM, nunca se deforma
-// sin importar cómo se estire el SVG debajo.
-//
-// viewBox 1000x250. Sólo reserva un margen chico en X (pad.left/right, para
-// que el trazo no quede pegado al borde) — el padding vertical del 15%
-// arriba/abajo (pad.top/bottom) es el que pide la consigna, en PÍXELES del
-// viewBox (no en el rango de valores): la curva usa sólo el 70% central de
-// la altura, dejando 15%+15% de aire real sin necesidad de inflar
-// artificialmente el rango min/max del precio.
-const CHART_W = 1000;
-const CHART_H = 250;
-const CHART_PAD = { top: CHART_H * 0.15, bottom: CHART_H * 0.15, left: 8, right: 8 };
-const CHART_GRID_STEPS = 3; // 4 líneas horizontales (incluye tope y base)
-const CHART_X_LABELS = 5;   // etiquetas de fecha repartidas en el eje X
-
-interface ChartPoint {
-  x: number;
-  y: number;
-  price: number;
-  dateIso: string;
-}
-
-// xPct/yPct: posición en % del contenedor (0–100), para los overlays
-// HTML/CSS de los ejes — se derivan de x/y en unidades de viewBox dividido
-// por CHART_W/CHART_H, así quedan correctos sin importar el stretch no
-// uniforme del SVG (cada eje escala independiente, pero % de SU propio eje
-// siempre es exacto).
-interface ChartGridLine {
-  y: number;    // unidades de viewBox — para el <line> dentro del SVG
-  yPct: number; // % del alto del contenedor — para el label HTML overlay
-  label: string;
-}
-
-interface ChartXLabel {
-  xPct: number;
-  label: string;
-}
-
-interface ChartLayout {
-  linePath: string;
-  areaPath: string;
-  gridLines: ChartGridLine[];
-  xLabels: ChartXLabel[];
-  points: ChartPoint[];
-  plot: { x0: number; x1: number; y0: number; y1: number };
-}
-
-// Etiqueta corta del eje X: DD/MM para rangos cortos (1S/1M, donde importa el
-// día); mes/año para rangos largos (6M/1A/MAX, donde el día ya no aporta).
-function formatChartAxisDate(iso: string, rango: ChartRango): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  if (rango === '1S' || rango === '1M') {
-    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+// fechaDesde de la ventana de un rango del gráfico, en UNIDADES DE CALENDARIO
+// reales (no un multiplicador fijo de días): 1 semana/mes/semestre/año/
+// quinquenio hacia atrás desde `today` (por defecto, ahora). Devuelve un Date
+// nuevo, nunca muta `today`. Sirve para derivar `dias` con precisión de
+// calendario para Cohen (cohenHistoricoUrl pide `dias`, no fechas — contrato
+// de la serverless function sin tocar, ver restricción de no alterar
+// endpoints) y para el mensaje amigable de "sin datos" (regla 3, más abajo).
+function rangoFechaDesde(rango: ChartRango, today: Date = new Date()): Date {
+  const d = new Date(today);
+  switch (rango) {
+    case '1S': d.setDate(d.getDate() - 7); break;
+    case '1M': d.setMonth(d.getMonth() - 1); break;
+    case '6M': d.setMonth(d.getMonth() - 6); break;
+    case '1A': d.setFullYear(d.getFullYear() - 1); break;
+    case 'MAX': d.setFullYear(d.getFullYear() - 5); break; // tope razonable, no todo el historial
   }
-  return d.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+  return d;
 }
 
-// Fecha completa para el tooltip del crosshair — siempre con día, sin
-// importar el rango (acá sí importa la precisión exacta del punto).
-function formatChartTooltipDate(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+// yyyy-MM-dd — mismo formato ISO corto que exige el endpoint de serie
+// histórica de IOL (ver ymd() server-side en api/iol/historico.js). Se usa
+// para logging/diagnóstico del rango real pedido, nunca se manda a mano al
+// endpoint de IOL (ese proxy sigue recibiendo `rango` como antes).
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Punto ya transformado al formato que exige TradingView Lightweight
+// Charts (BaselineSeries): time en UNIX epoch segundos, value = cierre real
+// (ultimoPrecio de HistoricoPoint — ver operar.types.ts, no hay campo
+// "cierre" real). Sólo se construye a partir de historicoData(), nunca con
+// datos hardcodeados/mock.
+interface ChartBaselinePoint {
+  time: UTCTimestamp;
+  value: number;
 }
 
 @Component({
@@ -591,75 +547,19 @@ function formatChartTooltipDate(iso: string): string {
               }
             </div>
 
-            @if (chartLayout(); as layout) {
+            @if (historicoAviso(); as aviso) {
+              <div class="op-chart-aviso">{{ aviso }}</div>
+            }
+            @if (chartBaselineData().length >= 2) {
               <div class="fc-wrap">
-                <div class="fc-row">
-                  <!-- fc-plot: única superficie con position:relative que
-                       comparten el SVG (línea+área, SIN ningún <text>) y los
-                       overlays HTML (etiquetas de fecha + tooltip) — todos
-                       posicionados en % de ESTA caja, así que %s siempre
-                       calzan sin importar cómo el navegador estire el SVG
-                       (preserveAspectRatio="none" ya no deforma texto porque
-                       ya no hay texto adentro del SVG). -->
-                  <div
-                    #fichaChartPlot
-                    class="fc-plot"
-                    (mousemove)="onChartMove($event, fichaChartPlot)"
-                    (mouseleave)="onChartLeave()"
-                  >
-                    <svg class="fc-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="fcAreaGradPos" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#059669" stop-opacity="0.35" />
-                          <stop offset="100%" stop-color="#059669" stop-opacity="0" />
-                        </linearGradient>
-                        <linearGradient id="fcAreaGradNeg" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" [attr.stop-color]="negColor" stop-opacity="0.35" />
-                          <stop offset="100%" [attr.stop-color]="negColor" stop-opacity="0" />
-                        </linearGradient>
-                      </defs>
-                      <!-- Gridlines horizontales sutiles (eje Y) — sin texto, la
-                           marca de precio vive en el overlay .fc-axis-y de al lado. -->
-                      @for (g of layout.gridLines; track g.y) {
-                        <line class="fc-grid-line" [attr.x1]="layout.plot.x0" [attr.x2]="layout.plot.x1" [attr.y1]="g.y" [attr.y2]="g.y" />
-                      }
-                      <!-- Área: <path> M/L…Z explícito que baja a la base ANTES
-                           de cerrar (nunca una diagonal xN,yN -> x0,y0). -->
-                      <path class="fc-area" [attr.d]="layout.areaPath" [attr.fill]="chartIsPos() ? 'url(#fcAreaGradPos)' : 'url(#fcAreaGradNeg)'" />
-                      <!-- Línea: vector-effect="non-scaling-stroke" mantiene el
-                           trazo a 2px reales sin importar el stretch no
-                           uniforme del viewBox (preserveAspectRatio="none"). -->
-                      <path class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.d]="layout.linePath" fill="none" vector-effect="non-scaling-stroke" />
-                      <!-- Crosshair al pasar el cursor. -->
-                      @if (chartHover(); as h) {
-                        <line class="fc-crosshair-x" [attr.x1]="h.x" [attr.x2]="h.x" [attr.y1]="layout.plot.y0" [attr.y2]="layout.plot.y1" vector-effect="non-scaling-stroke" />
-                        <circle class="fc-crosshair-dot" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.cx]="h.x" [attr.cy]="h.y" r="4" vector-effect="non-scaling-stroke" />
-                      }
-                    </svg>
-
-                    <!-- Etiquetas de fecha (eje X): overlay HTML, nunca dentro
-                         del SVG — tipografía real del DOM, no se deforma. -->
-                    @for (xl of layout.xLabels; track xl.xPct) {
-                      <span class="fc-x-label" [style.left.%]="xl.xPct">{{ xl.label }}</span>
-                    }
-
-                    <!-- Tooltip del crosshair. -->
-                    @if (chartHover(); as h) {
-                      <div class="fc-tooltip" [style.left.%]="chartHoverXPct()">
-                        <span class="fc-tooltip-date">{{ chartHoverDateLabel() }}</span>
-                        <span class="fc-tooltip-price num">$ {{ fmt(h.price) }}</span>
-                      </div>
-                    }
-                  </div>
-
-                  <!-- Eje Y: marcas de precio, overlay HTML en columna propia
-                       al lado del plot (nunca <text> dentro del SVG). -->
-                  <div class="fc-axis-y">
-                    @for (g of layout.gridLines; track g.y) {
-                      <span class="fc-axis-y-label" [style.top.%]="g.yPct">{{ g.label }}</span>
-                    }
-                  </div>
-                </div>
+                <div #fichaChartContainer class="fc-chart"></div>
+                <!-- Loader sutil superpuesto (no reemplaza el gráfico
+                     mientras recarga otro rango — regla 3: se conservan los
+                     últimos datos válidos visibles hasta que llega el nuevo
+                     rango, en vez de vaciar la pantalla). -->
+                @if (historicoLoading()) {
+                  <div class="fc-loading-overlay"><span class="fc-spinner"></span></div>
+                }
               </div>
             } @else if (historicoLoading()) {
               <div class="op-empty">Cargando gráfico…</div>
@@ -706,12 +606,12 @@ function formatChartTooltipDate(iso: string): string {
             </div>
           </div>
 
-          <!-- Gráfico histórico (mismo SVG que Ficha, ver .fc-wrap/chartPoints
-               más abajo): arriba de Puntas/Orden, en la pantalla de compra.
-               loadHistorico() se dispara para esta subvista vía fichaFetch
-               (ver effect en el component) — mismos historicoData()/
-               historicoLoading()/chartRango() que ya usa Ficha, sin
-               duplicar estado ni lógica. -->
+          <!-- Gráfico histórico (mismo TradingView chart que Ficha, ver
+               .fc-wrap/createOrUpdateChart() más abajo): arriba de
+               Puntas/Orden, en la pantalla de compra. loadHistorico() se
+               dispara para esta subvista vía fichaFetch (ver effect en el
+               component) — mismos historicoData()/historicoLoading()/
+               chartRango() que ya usa Ficha, sin duplicar estado ni lógica. -->
           <div class="op-card op-chart-card">
             <div class="op-rango-pills">
               @for (r of chartRangos; track r.id) {
@@ -721,55 +621,15 @@ function formatChartTooltipDate(iso: string): string {
               }
             </div>
 
-            @if (chartLayout(); as layout) {
+            @if (historicoAviso(); as aviso) {
+              <div class="op-chart-aviso">{{ aviso }}</div>
+            }
+            @if (chartBaselineData().length >= 2) {
               <div class="fc-wrap">
-                <div class="fc-row">
-                  <div
-                    #ticketChartPlot
-                    class="fc-plot"
-                    (mousemove)="onChartMove($event, ticketChartPlot)"
-                    (mouseleave)="onChartLeave()"
-                  >
-                    <svg class="fc-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="fcAreaGradPosTk" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#059669" stop-opacity="0.35" />
-                          <stop offset="100%" stop-color="#059669" stop-opacity="0" />
-                        </linearGradient>
-                        <linearGradient id="fcAreaGradNegTk" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" [attr.stop-color]="negColor" stop-opacity="0.35" />
-                          <stop offset="100%" [attr.stop-color]="negColor" stop-opacity="0" />
-                        </linearGradient>
-                      </defs>
-                      @for (g of layout.gridLines; track g.y) {
-                        <line class="fc-grid-line" [attr.x1]="layout.plot.x0" [attr.x2]="layout.plot.x1" [attr.y1]="g.y" [attr.y2]="g.y" />
-                      }
-                      <path class="fc-area" [attr.d]="layout.areaPath" [attr.fill]="chartIsPos() ? 'url(#fcAreaGradPosTk)' : 'url(#fcAreaGradNegTk)'" />
-                      <path class="fc-line" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.d]="layout.linePath" fill="none" vector-effect="non-scaling-stroke" />
-                      @if (chartHover(); as h) {
-                        <line class="fc-crosshair-x" [attr.x1]="h.x" [attr.x2]="h.x" [attr.y1]="layout.plot.y0" [attr.y2]="layout.plot.y1" vector-effect="non-scaling-stroke" />
-                        <circle class="fc-crosshair-dot" [class.pos]="chartIsPos()" [class.neg]="!chartIsPos()" [attr.cx]="h.x" [attr.cy]="h.y" r="4" vector-effect="non-scaling-stroke" />
-                      }
-                    </svg>
-
-                    @for (xl of layout.xLabels; track xl.xPct) {
-                      <span class="fc-x-label" [style.left.%]="xl.xPct">{{ xl.label }}</span>
-                    }
-
-                    @if (chartHover(); as h) {
-                      <div class="fc-tooltip" [style.left.%]="chartHoverXPct()">
-                        <span class="fc-tooltip-date">{{ chartHoverDateLabel() }}</span>
-                        <span class="fc-tooltip-price num">$ {{ fmt(h.price) }}</span>
-                      </div>
-                    }
-                  </div>
-
-                  <div class="fc-axis-y">
-                    @for (g of layout.gridLines; track g.y) {
-                      <span class="fc-axis-y-label" [style.top.%]="g.yPct">{{ g.label }}</span>
-                    }
-                  </div>
-                </div>
+                <div #ticketChartContainer class="fc-chart"></div>
+                @if (historicoLoading()) {
+                  <div class="fc-loading-overlay"><span class="fc-spinner"></span></div>
+                }
               </div>
             } @else if (historicoLoading()) {
               <div class="op-empty">Cargando gráfico…</div>
@@ -1678,89 +1538,39 @@ function formatChartTooltipDate(iso: string): string {
     }
 
     /* Ficha/Ticket — contenedor del gráfico: card con borde y radio, igual
-       que tablas. */
+       que tablas. El gráfico real vive adentro (TradingView Lightweight
+       Charts, ver createOrUpdateChart() en el component) — .fc-chart es
+       sólo el <div> anfitrión que la librería toma y llena con su propio
+       canvas; los ejes/crosshair/tooltip los dibuja la librería. */
     .fc-wrap {
-      border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
-      padding: 16px;
+      position: relative; border: 1px solid var(--line); border-radius: var(--r-lg);
+      background: var(--surface); padding: 16px;
     }
-    /* fc-row: plot (SVG + overlays de fecha/tooltip) a la izquierda, eje Y
-       (precios) en columna angosta a la derecha — layout real en HTML/CSS,
-       no dentro del SVG. */
-    .fc-row { display: flex; align-items: stretch; gap: 0; }
-    /* fc-plot: única superficie position:relative que comparten el SVG y
-       los overlays HTML (.fc-x-label/.fc-tooltip) — todos anclados a ESTA
-       caja con % (top/left), así que cuadran sin importar el aspect ratio
-       real que termine teniendo el SVG en pantalla. padding-bottom reserva
-       el renglón de las fechas debajo del plot; sin ese padding, las
-       etiquetas absolutas (top:100%) quedarían pegadas al borde inferior
-       de la card en vez de tener su propio renglón. */
-    .fc-plot {
-      position: relative; flex: 1; min-width: 0;
-      height: 200px; padding-bottom: 22px; cursor: crosshair;
+    .fc-chart { width: 100%; height: 280px; }
+
+    /* Loader sutil al recargar un rango (ver historicoLoading() en el
+       template) — overlay semi-transparente sobre el gráfico VIGENTE, nunca
+       lo oculta del todo: los últimos datos válidos siguen visibles debajo
+       mientras llega la respuesta del nuevo rango (regla 3). */
+    .fc-loading-overlay {
+      position: absolute; inset: 16px; display: flex; align-items: center; justify-content: center;
+      background: color-mix(in srgb, var(--surface) 55%, transparent);
+      border-radius: var(--r); pointer-events: none;
     }
-    .fc-svg { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - 22px); display: block; }
-    .fc-line { stroke-width: 2; }
-    .fc-line.pos { stroke: #059669; }
-    .fc-line.neg { stroke: var(--neg); }
-    /* fc-area: <path> con fill="url(#fcAreaGrad…)" seteado inline desde el
-       template (ver chartLayout().areaPath + linearGradient en <defs>) —
-       degradado verde/rojo a transparente, sin opacidad plana por CSS. El
-       FIX real del "bloque sólido" no es esta regla: es que el atributo
-       "d" del path ahora baja a la base DESPUÉS de recorrer toda la curva
-       punto a punto (ver comentario en chartLayout()), en vez de cerrar
-       con una diagonal directa que dejaba mal definida el área rellenada. */
-    .fc-area { stroke: none; }
-
-    /* Gridlines horizontales sutiles (eje Y) — punteadas, no compiten
-       visualmente con la curva. Sin texto: la marca de precio vive en el
-       overlay .fc-axis-y de al lado (ver template), nunca en un <text> del
-       SVG (con preserveAspectRatio="none" el texto se deforma al estirar). */
-    .fc-grid-line { stroke: #f3f4f6; stroke-width: 1; stroke-dasharray: 4 4; }
-
-    /* Eje Y (precios): columna angosta a la derecha del plot, cada label
-       posicionado en top:% (mismo % que su gridline, ver gridLines().yPct)
-       — position:absolute dentro de esta columna, nunca dentro del SVG. */
-    .fc-axis-y { position: relative; flex: 0 0 auto; width: 52px; height: 200px; }
-    .fc-axis-y-label {
-      position: absolute; left: 6px; transform: translateY(-50%);
-      font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); white-space: nowrap;
+    .fc-spinner {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2.5px solid var(--line-2); border-top-color: var(--accent);
+      animation: fc-spin .7s linear infinite;
     }
+    @keyframes fc-spin { to { transform: rotate(360deg); } }
 
-    /* Eje X (fechas): overlay HTML debajo del plot (dentro de fc-plot,
-       top:100% = el padding-bottom reservado arriba) — cada label
-       centrado en su left:%, nunca dentro del SVG. */
-    .fc-x-label {
-      position: absolute; top: 100%; margin-top: 4px; transform: translateX(-50%);
-      font-family: var(--font-ui); font-size: 10px; color: var(--ink-3); white-space: nowrap;
-    }
-
-    /* Crosshair vertical + punto sobre la curva — el trazo usa
-       vector-effect="non-scaling-stroke" (ver template) para no deformarse
-       con el stretch no uniforme del viewBox. */
-    .fc-crosshair-x { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
-    .fc-crosshair-dot { stroke: var(--surface); stroke-width: 1.5; pointer-events: none; }
-    .fc-crosshair-dot.pos { fill: #059669; }
-    .fc-crosshair-dot.neg { fill: var(--neg); }
-
-    /* Tooltip flotante del crosshair: overlay HTML dentro de fc-plot,
-       sigue al mouse en X (left:%, ver chartHoverXPct() en el component) —
-       tipografía real, nunca deformada. */
-    .fc-tooltip {
-      position: absolute; top: 8px; z-index: 2;
-      display: flex; flex-direction: column; gap: 1px;
-      padding: 5px 9px; border-radius: var(--r-sm);
-      background: var(--ink); color: var(--surface);
-      font-size: 11px; line-height: 1.3; white-space: nowrap;
-      transform: translateX(-50%); pointer-events: none;
-      box-shadow: var(--shadow-sm);
-    }
-    .fc-tooltip-date { color: #cfcfd2; font-size: 10px; }
-    .fc-tooltip-price { font-weight: 700; }
-
-    @media (max-width: 480px) {
-      /* Eje Y más angosto en mobile — los precios suelen ser cortos y el
-         plot necesita todo el ancho posible en pantallas chicas. */
-      .fc-axis-y { width: 40px; }
+    /* Aviso amigable cuando el rango pedido no trajo datos reales de ninguna
+       fuente (Cohen/IOL) — se muestra ARRIBA del gráfico VIGENTE (que sigue
+       mostrando los últimos datos válidos, regla 3), nunca en su lugar. */
+    .op-chart-aviso {
+      padding: 8px 12px; margin-bottom: 10px; border-radius: var(--r-sm);
+      background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-strong);
+      font-size: 12px; font-weight: 600;
     }
 
     /* Ficha — mini-libro de puntas, colapsable */
@@ -2004,6 +1814,20 @@ function formatChartTooltipDate(iso: string): string {
        variantes semánticas, igual que .om-chip/.or-chip. */
     .otm-chip.pos { background: var(--pos-bg); border-color: var(--pos-line); color: var(--pos); }
     .otm-chip.neg { background: var(--neg-bg); border-color: var(--neg-line); color: var(--neg); }
+    /* .op-buy-row-btn: clase referenciada en el template pero sin regla
+       propia (quedó huérfana) — el botón "Comprar" de Destacados heredaba
+       sólo el estilo por defecto del navegador, inconsistente con el resto
+       de la app. Se alinea acá con el sistema de botones secundarios
+       (mismo radio/padding simétrico que .op-subtab) + hover forzado a
+       negro sólido, sin tocar el (click) ni los parámetros de
+       comprarDirecto(). */
+    .op-buy-row-btn {
+      height: 26px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--surface); color: var(--ink); cursor: pointer;
+      font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+      transition: background-color .2s, color .2s, border-color .2s;
+    }
+    .op-buy-row-btn:hover { background: #000; color: #fff; border-color: #000; }
     .op-top-mover-buy { flex-shrink: 0; height: 26px; }
     .op-top-mover-empty { padding: 0; font-size: 12px; }
 
@@ -2090,7 +1914,7 @@ function formatChartTooltipDate(iso: string): string {
     }
   `],
 })
-export class OperarComponent implements OnInit {
+export class OperarComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private router = inject(Router);
 
@@ -2110,16 +1934,6 @@ export class OperarComponent implements OnInit {
   dolarStrip: DolarStripRow[] = DOLAR_STRIP;
   currencyPills = CURRENCY_PILLS;
   chartRangos = CHART_RANGOS;
-  // Expuestos al template para el viewBox del gráfico (ver .fc-svg) — el
-  // template no puede leer constantes de módulo directamente.
-  chartW = CHART_W;
-  chartH = CHART_H;
-  // Rojo semántico para el gradiente del área en tramos negativos (--neg del
-  // ui-kit resuelve a este mismo tono) — SVG <stop stop-color> no acepta
-  // var(--custom-prop) en todos los navegadores, así que va hardcodeado acá,
-  // igual que el verde #059669 pedido para la línea/área positiva.
-  negColor = '#dc2626';
-
   subview = signal<OperarSubview>('home');
   selectedInstrumentId = signal<InstrumentId | null>(null);
   selectedSymbol = signal<string | null>(null);
@@ -2153,6 +1967,12 @@ export class OperarComponent implements OnInit {
   chartRango = signal<ChartRango>('1M');
   historicoData = signal<HistoricoPoint[]>([]);
   historicoLoading = signal(false);
+  // Aviso amigable cuando el rango pedido no trajo datos reales de NINGUNA
+  // fuente (Cohen ni IOL) — p. ej. 1S cayendo un fin de semana largo sin
+  // ruedas. Regla 3 (invariabilidad): en ese caso se CONSERVAN los últimos
+  // datos válidos ya cargados (no se pisa historicoData ni se inventa nada)
+  // y sólo se muestra este mensaje; null = sin aviso pendiente.
+  historicoAviso = signal<string | null>(null);
   fichaBookOpen = signal(true);
 
   // Estado propio de la subvista Ticket — 100% UI, sin request a operatoria
@@ -2570,145 +2390,239 @@ export class OperarComponent implements OnInit {
     return { totalInvertido, gananciaTotal, variacionHoy, variacionHoyPct };
   });
 
-  chartIsPos = computed<boolean>(() => {
+  // Serie transformada al formato de TradingView Lightweight Charts
+  // (BaselineSeries): time en UNIX epoch SEGUNDOS (Math.floor(ms/1000)),
+  // value = cierre real (ultimoPrecio — IOL no trae campo "cierre"; en una
+  // serie diaria el último precio de cada día ES el cierre de esa rueda,
+  // ver operar.types.ts). Fuente exclusiva: historicoData(), que ya llena
+  // loadHistorico() con la cadena real Cohen → IOL — nunca datos mock. Se
+  // reordena estrictamente ascendente por tiempo (TradingView exige orden
+  // cronológico estricto, sin duplicados) aunque historicoData() ya venga
+  // ordenado — dedupe por si dos puntos cayeran en el mismo segundo.
+  chartBaselineData = computed<ChartBaselinePoint[]>(() => {
     const d = this.historicoData();
-    if (d.length < 2) return true;
-    return (+d[d.length - 1].ultimoPrecio || 0) >= (+d[0].ultimoPrecio || 0);
-  });
-
-  // Layout completo del gráfico: línea + área (<path> con comandos
-  // explícitos, nunca <polygon>/<polyline>) y las posiciones (en %, para los
-  // overlays HTML) de gridlines de precio (Y) y etiquetas de fecha (X).
-  // viewBox fijo CHART_W x CHART_H (ver constantes arriba). IOL no trae un
-  // campo "cierre" en la serie histórica: en una serie diaria, `ultimoPrecio`
-  // de cada día ES el cierre de esa rueda (ver operar.types.ts).
-  chartLayout = computed<ChartLayout | null>(() => {
-    const d = this.historicoData();
-    if (d.length < 2) return null;
-
-    const x0 = CHART_PAD.left;
-    const x1 = CHART_W - CHART_PAD.right;
-    const y0 = CHART_PAD.top;
-    const y1 = CHART_H - CHART_PAD.bottom;
-
-    const closes = d.map((p) => +p.ultimoPrecio || 0);
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    // span nunca 0 (serie plana) para no dividir por cero; el padding
-    // vertical real ya lo da CHART_PAD.top/bottom en píxeles del viewBox
-    // (15% arriba/abajo, ver comentario de las constantes) — acá sólo se
-    // normaliza el precio al 0..1 del área útil (y0..y1).
-    const span = max - min || Math.max(max, 1) * 0.01;
-
-    const stepX = (x1 - x0) / (d.length - 1);
-    // BUG REAL de la versión anterior: `(+p.ultimoPrecio || 0 - min)` — por
-    // precedencia de operadores en JS, `||` liga MÁS DÉBIL que `-`, así que
-    // esto se evaluaba como `(+p.ultimoPrecio) || (0 - min)`. Con
-    // ultimoPrecio truthy (cualquier precio > 0), el operando derecho del
-    // `||` nunca se usaba y la resta "- min" quedaba completamente
-    // descartada — el numerador terminaba siendo el precio CRUDO, no
-    // "precio - min". Eso rompía la normalización: alturas gigantes/
-    // negativas fuera de la ventana visible → línea aplastada contra un
-    // borde (invisible) y el <path> del área, que sí llegaba a cerrar en
-    // la base, terminaba pintando el rectángulo completo. Fix: paréntesis
-    // explícitos, `(+p.ultimoPrecio || 0) - min`.
-    const points: ChartPoint[] = d.map((p, i) => {
-      const price = +p.ultimoPrecio || 0;
-      return {
-        x: x0 + i * stepX,
-        y: y1 - ((price - min) / span) * (y1 - y0),
-        price,
-        dateIso: p.fechaHora,
-      };
-    });
-
-    const linePath = points
-      .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(2)},${pt.y.toFixed(2)}`)
-      .join(' ');
-    // Área: sube por la curva (linePath) y SÓLO ahí baja verticalmente por
-    // xN hasta la base (height), corre por la base hasta x0 y cierra (Z) —
-    // nunca una diagonal directa del último punto al primero.
-    const last = points[points.length - 1];
-    const first = points[0];
-    const areaPath =
-      `M ${first.x.toFixed(2)},${CHART_H.toFixed(2)} ` +
-      `${points.map((pt) => `L ${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ')} ` +
-      `L ${last.x.toFixed(2)},${CHART_H.toFixed(2)} ` +
-      `L ${first.x.toFixed(2)},${CHART_H.toFixed(2)} Z`;
-
-    // Gridlines horizontales con marca de precio (overlay HTML, ver
-    // .fc-axis-y en el template) — posición en % del alto del contenedor,
-    // de max (arriba) a min (abajo).
-    const gridLines: ChartGridLine[] = Array.from({ length: CHART_GRID_STEPS + 1 }, (_, i) => {
-      const t = i / CHART_GRID_STEPS;
-      const price = max - t * (max - min);
-      const y = y0 + t * (y1 - y0);
-      return { y, yPct: (y / CHART_H) * 100, label: this.fmt(price) };
-    });
-
-    // Etiquetas de fecha (overlay HTML, ver .fc-axis-x) repartidas por
-    // índice — siempre incluye el primer y el último punto.
-    const rango = this.chartRango();
-    const n = Math.min(CHART_X_LABELS, points.length);
-    const xLabels: ChartXLabel[] = Array.from({ length: n }, (_, i) => {
-      const idx = n === 1 ? 0 : Math.round((i / (n - 1)) * (points.length - 1));
-      const pt = points[idx];
-      return { xPct: (pt.x / CHART_W) * 100, label: formatChartAxisDate(pt.dateIso, rango) };
-    });
-
-    return { linePath, areaPath, gridLines, xLabels, points, plot: { x0, x1, y0, y1 } };
-  });
-
-  // Crosshair (hover): punto más cercano al cursor sobre el eje X, con
-  // fecha completa + precio exacto para el tooltip. null = mouse afuera del
-  // gráfico (oculta crosshair/tooltip en el template).
-  chartHover = signal<ChartPoint | null>(null);
-
-  // `plot` es el div .fc-plot (mismo tamaño real que el SVG que contiene,
-  // ver template) — se usa su getBoundingClientRect() en vez del <svg>
-  // directamente para que el cálculo no dependa de cómo el navegador mida
-  // internamente el SVG con preserveAspectRatio="none".
-  onChartMove(ev: MouseEvent, plot: Element) {
-    const layout = this.chartLayout();
-    if (!layout || !layout.points.length) return;
-    const rect = plot.getBoundingClientRect();
-    // Mapea la posición del mouse (px reales del elemento) al espacio del
-    // viewBox (CHART_W x CHART_H) — necesario porque el SVG se estira a un
-    // ancho variable vía CSS (ver .fc-svg, width:100%). El crosshair/tooltip
-    // se posicionan en % (chartHoverXPct), así que da igual el aspect ratio
-    // real del elemento en pantalla.
-    const relX = ((ev.clientX - rect.left) / rect.width) * CHART_W;
-    let nearest = layout.points[0];
-    let bestDist = Infinity;
-    for (const pt of layout.points) {
-      const dist = Math.abs(pt.x - relX);
-      if (dist < bestDist) { bestDist = dist; nearest = pt; }
+    const seen = new Set<number>();
+    const points: ChartBaselinePoint[] = [];
+    for (const p of d) {
+      const ms = new Date(p.fechaHora).getTime();
+      if (isNaN(ms)) continue;
+      const time = Math.floor(ms / 1000) as UTCTimestamp;
+      if (seen.has(time)) continue;
+      seen.add(time);
+      points.push({ time, value: +p.ultimoPrecio || 0 });
     }
-    this.chartHover.set(nearest);
+    return points.sort((a, b) => a.time - b.time);
+  });
+
+  // Referencias a los <div> anfitriones del chart (Ficha y Ticket comparten
+  // los mismos historicoData()/chartRango(), pero cada subvista tiene su
+  // propia instancia de gráfico — ver createOrUpdateChart()). Sólo uno de
+  // los dos está en el DOM a la vez según subview(), por eso cada instancia
+  // se crea/destruye perezosamente cuando su contenedor aparece.
+  private fichaChartContainer = viewChild<ElementRef<HTMLElement>>('fichaChartContainer');
+  private ticketChartContainer = viewChild<ElementRef<HTMLElement>>('ticketChartContainer');
+  // lastTime: último UNIX timestamp (segundos) escrito en la serie — arranca
+  // en el último punto histórico (setData) y lo pisa cada tick en vivo
+  // (update, ver pushLiveTick) para poder exigir tiempo no-decreciente
+  // (TradingView tira error si update() llega con un time menor al último).
+  private fichaChart: { chart: IChartApi; series: ISeriesApi<'Baseline'>; el: HTMLElement; lastTime: UTCTimestamp | null } | null = null;
+  private ticketChart: { chart: IChartApi; series: ISeriesApi<'Baseline'>; el: HTMLElement; lastTime: UTCTimestamp | null } | null = null;
+
+  // Rangos intradía: sus marcas necesitan granularidad de hora disponible
+  // (timeVisible:true) para que TradingView pueda distinguir varios puntos
+  // del mismo día al hacer zoom in — el tickMarkFormatter (abajo) decide el
+  // TEXTO final igual, pero sin timeVisible TradingView ni siquiera ofrece
+  // el nivel de detalle Time/TimeWithSeconds. 6M/1A/MAX son series diarias
+  // de punta a punta: timeVisible:false para que NINGUNA marca pueda
+  // mostrar hora bajo ninguna circunstancia (requisito explícito).
+  private static readonly INTRADAY_RANGOS = new Set<ChartRango>(['1S', '1M']);
+
+  // Crea (una sola vez por contenedor) o actualiza el BaselineSeries con los
+  // datos reales vigentes. baseValue = primer precio de la serie cargada
+  // (pedido explícito: rendimientos sobre ese precio inicial en verde/rojo).
+  private createOrUpdateChart(
+    ref: 'fichaChart' | 'ticketChart',
+    containerRef: ReturnType<typeof viewChild<ElementRef<HTMLElement>>>,
+  ) {
+    const el = containerRef()?.nativeElement;
+    const data = this.chartBaselineData();
+    if (!el || data.length < 2) return;
+    const rango = this.chartRango();
+
+    let instance = this[ref];
+    // El contenedor es un @if — Angular lo destruye/recrea cada vez que
+    // chartBaselineData().length cae por debajo de 2 (o cambia de subvista y
+    // vuelve). Si el <div> real cambió, la instancia vieja quedó apuntando a
+    // un nodo fuera del DOM: se descarta y se crea una nueva sobre el actual.
+    if (instance && instance.el !== el) {
+      instance.chart.remove();
+      instance = null;
+      this[ref] = null;
+    }
+    if (!instance) {
+      const chart = createChart(el, {
+        autoSize: true,
+        layout: {
+          background: { color: 'transparent' },
+          textColor: '#78787f', // var(--ink-3)
+        },
+        grid: {
+          vertLines: { visible: false },
+          horzLines: { color: '#f3f4f6' },
+        },
+        rightPriceScale: { borderColor: '#e4e3df' }, // var(--line)
+        timeScale: {
+          borderColor: '#e4e3df',
+          borderVisible: false,
+          secondsVisible: false,
+          // rightOffset: margen de confort fijo a la derecha del último
+          // punto real (en unidades de barra, no píxeles) — ajustado según rango
+          rightOffset: 12,
+          // fixRightEdge/fixLeftEdge: permiten cierto margen de scroll más allá
+          // de los datos para mejor experiencia de usuario
+          fixRightEdge: false,
+          fixLeftEdge: false,
+          // lockVisibleTimeRangeOnResize: mantiene el rango visible al redimensionar
+          lockVisibleTimeRangeOnResize: true,
+          // tickMarkFormatter: evalúa tickMarkType (igual que TradingView
+          // internamente) para que cada TIPO de marca tenga su propio
+          // formato — nunca fechas repetidas en fila. En 6M/1A/MAX
+          // timeVisible queda en false (ver aplicación más abajo), así que
+          // TradingView NUNCA pide Time/TimeWithSeconds para esas vistas;
+          // en 1S/1M sí puede pedirlas al hacer zoom profundo intradía.
+          //   - Time/TimeWithSeconds (zoom profundo, sólo 1S/1M): "14:00".
+          //   - DayOfMonth (marca diaria — el caso normal de 1S/1M): "15 jul"
+          //     — un día por marca, nunca duplicado en la fila.
+          //   - Month/Year (rangos largos 6M/1A/MAX): "jul" / "2026".
+          tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) => {
+            const ms = typeof time === 'number' ? time * 1000 : new Date(String(time)).getTime();
+            const d = new Date(ms);
+            if (isNaN(d.getTime())) return '';
+            switch (tickMarkType) {
+              case TickMarkType.Year:
+                return d.toLocaleDateString('es-AR', { year: 'numeric' });
+              case TickMarkType.Month:
+                return d.toLocaleDateString('es-AR', { month: 'short' });
+              case TickMarkType.DayOfMonth:
+                return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' }); // "15 jul"
+              case TickMarkType.Time:
+              case TickMarkType.TimeWithSeconds:
+                return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+              default:
+                return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+            }
+          },
+        },
+        crosshair: { mode: 1 }, // Magnet
+      });
+      const series = chart.addSeries(BaselineSeries, {
+        baseValue: { type: 'price', price: data[0].value },
+        topLineColor: 'rgba(38, 166, 154, 1)',
+        topFillColor1: 'rgba(38, 166, 154, 0.28)',
+        bottomLineColor: 'rgba(239, 83, 80, 1)',
+        bottomFillColor1: 'rgba(239, 83, 80, 0.28)',
+      });
+      instance = { chart, series, el, lastTime: null };
+      this[ref] = instance;
+    } else {
+      instance.series.applyOptions({ baseValue: { type: 'price', price: data[0].value } });
+    }
+    // timeVisible se reaplica en cada render (no sólo al crear el chart):
+    // el mismo chart/instancia se reusa entre clicks de rango (1S -> 6M sin
+    // recrear el <div>), así que si no se reafirma acá, un click a 6M
+    // después de haber estado en 1S dejaría timeVisible:true pisado del
+    // rango anterior y podría filtrar horas donde NO deben aparecer.
+    instance.chart.applyOptions({
+      timeScale: { timeVisible: OperarComponent.INTRADAY_RANGOS.has(rango) },
+    });
+    instance.series.setData(data);
+    instance.lastTime = data[data.length - 1].time;
+    this.applyRangoVisibleRange(instance.chart, rango, data);
   }
 
-  onChartLeave() {
-    this.chartHover.set(null);
+  // Aplica la ventana visible según el botón de rango activo — SIEMPRE
+  // anclada al ÚLTIMO DATO REAL de la serie (data[data.length-1].time), NUNCA
+  // a "hoy"/Date.now() (que puede ser fin de semana/feriado sin rueda, o
+  // simplemente no coincidir con el último punto real si el feed viene
+  // atrasado): así "to" jamás es una fecha futura sin datos.
+  //   - MAX: fitContent() nativo — encaja todo el historial disponible de
+  //     punta a punta, tal cual pide la consigna.
+  //   - 1S/1M/6M/1A: setVisibleRange({ from, to }) con `to` = último dato
+  //     real y `from` = ese mismo timestamp menos la ventana de calendario
+  //     exacta (7 días / 1 mes / 6 meses / 1 año, ver rangoFechaDesde).
+  //     setVisibleRange ya "clampea" from/to a los datos existentes (ver
+  //     docs de TradingView), así que si la serie real es más corta que la
+  //     ventana pedida (símbolo con poco historial) no rompe, sólo muestra
+  //     lo que hay — nunca inventa ni extrapola.
+  private applyRangoVisibleRange(chart: IChartApi, rango: ChartRango, data: ChartBaselinePoint[]) {
+    if (rango === 'MAX') {
+      chart.timeScale().fitContent();
+      return;
+    }
+    const lastTime = data[data.length - 1].time;
+    const from = Math.floor(rangoFechaDesde(rango, new Date(lastTime * 1000)).getTime() / 1000) as UTCTimestamp;
+    chart.timeScale().setVisibleRange({ from, to: lastTime });
   }
 
-  // Posición X del punto bajo el cursor, en % del ancho — usada tanto por
-  // el crosshair SVG (convertido de vuelta a unidades de viewBox) como por
-  // el tooltip HTML (left en %, ver template).
-  chartHoverXPct(): number {
-    const h = this.chartHover();
-    return h ? (h.x / CHART_W) * 100 : 0;
+  // Tick real en vivo (WebSocket/polling de Cohen/IOL ya activo en la
+  // plataforma, ver liveTick más abajo) → series.update(), NUNCA
+  // setData(): update() es O(1) y anima el último tramo de la curva sin
+  // redibujar toda la serie ni resetear el zoom/scroll del usuario — llamar
+  // a setData() en cada tick (varias veces por segundo) degradaría el
+  // rendimiento y cortaría la animación, tal como pide la consigna.
+  // TradingView exige tiempo no-decreciente en update(): si el tick real
+  // llega con un timestamp <= lastTime (reloj del cliente atrasado respecto
+  // al último punto histórico, o dos ticks en el mismo segundo), se
+  // redondea a lastTime+1s en vez de descartarlo silenciosamente.
+  private pushLiveTick(ref: 'fichaChart' | 'ticketChart', point: ChartBaselinePoint) {
+    const instance = this[ref];
+    if (!instance) return;
+    const time = (instance.lastTime != null && point.time <= instance.lastTime
+      ? (instance.lastTime + 1) as UTCTimestamp
+      : point.time);
+    instance.series.update({ time, value: point.value });
+    instance.lastTime = time;
   }
 
-  chartHoverYPct(): number {
-    const h = this.chartHover();
-    return h ? (h.y / CHART_H) * 100 : 0;
-  }
+  // Reacciona a cualquier cambio de datos/rango (misma fuente que Ficha y
+  // Ticket, ver fichaFetch más abajo) y redibuja el gráfico que esté
+  // efectivamente montado en el DOM (subview() decide cuál existe).
+  private renderChart = effect(() => {
+    // Se leen las signals ACÁ (no dentro de createOrUpdateChart) para que
+    // el effect se re-dispare ante cualquier cambio de alguna de ellas.
+    this.chartBaselineData();
+    this.subview();
+    if (this.fichaChartContainer()) this.createOrUpdateChart('fichaChart', this.fichaChartContainer);
+    if (this.ticketChartContainer()) this.createOrUpdateChart('ticketChart', this.ticketChartContainer);
+  });
 
-  // Etiqueta de fecha completa del punto bajo el crosshair, para el tooltip.
-  chartHoverDateLabel(): string {
-    const h = this.chartHover();
-    return h ? formatChartTooltipDate(h.dateIso) : '';
-  }
+  // Último tick real empujado al gráfico (symbol+precio) — dedupe para no
+  // llamar update() de nuevo si el polling trajo el mismo precio sin cambios
+  // (loadHome() re-corre cada 20s aunque el precio no haya movido).
+  private lastLiveTick: { symbol: string; value: number } | null = null;
+
+  // Feed en tiempo real: reacciona a selectedRow() (precio real cacheado de
+  // acciones/cedears/bonos, refrescado por el polling de 20s de loadHome()
+  // — mismo feed real IOL que ya está activo en la plataforma, sin
+  // WebSocket propio para esto). Cada vez que el precio real del symbol
+  // seleccionado cambia, empuja un tick real vía series.update() (nunca
+  // setData()) al gráfico que esté montado (Ficha o Ticket). Si letras/ONs/
+  // US$ no tienen polling propio (fetch único, ver ensurePanelData), esta
+  // señal simplemente no dispara ticks nuevos para esos symbols — cero
+  // datos inventados, sólo lo que el feed real entrega.
+  private liveTick = effect(() => {
+    const row = this.selectedRow();
+    const view = this.subview();
+    const symbol = this.selectedSymbol();
+    if (!row || !symbol || (view !== 'ficha' && view !== 'ticket')) return;
+    const value = this.price(row);
+    if (!(value > 0)) return;
+    if (this.lastLiveTick?.symbol === symbol && this.lastLiveTick.value === value) return;
+    this.lastLiveTick = { symbol, value };
+    const point: ChartBaselinePoint = { time: Math.floor(Date.now() / 1000) as UTCTimestamp, value };
+    this.pushLiveTick('fichaChart', point);
+    this.pushLiveTick('ticketChart', point);
+  });
 
   // Precio efectivo del Paso 1: precio límite si el usuario eligió esa
   // modalidad; si no, el lado del libro que corresponde según la dirección:
@@ -2739,6 +2653,16 @@ export class OperarComponent implements OnInit {
 
   ngOnInit() {
     // El prefetch corre desde el effect de arriba (subview() ya arranca en 'home').
+  }
+
+  // Limpieza de los charts de TradingView al destruir el componente (salir
+  // de /operar) — evita memory leaks (listeners de resize, canvas, etc. que
+  // la librería no libera sola si el <div> anfitrión desaparece del DOM).
+  ngOnDestroy() {
+    this.fichaChart?.chart.remove();
+    this.ticketChart?.chart.remove();
+    this.fichaChart = null;
+    this.ticketChart = null;
   }
 
   // Cierra el dropdown custom de instrumento (ver .op-dropdown) al clickear
@@ -2944,7 +2868,14 @@ export class OperarComponent implements OnInit {
     this.router.navigate(['/operar', symbol], { queryParams: { tipo, origin } });
   }
 
+  // Click en un botón de temporalidad (1S/1M/6M/1A/MÁX): actualiza el estado
+  // visual activo (chartRango(), ver [class.on] en el template) y dispara el
+  // re-fetch real vía el effect `fichaFetch` (mismo mecanismo ya usado para
+  // symbol — cambiar chartRango() re-ejecuta loadHistorico con el rango
+  // nuevo). Limpia cualquier aviso de "sin datos" del rango anterior: cada
+  // click arranca su propio ciclo de fetch/aviso.
   selectRango(r: ChartRango) {
+    this.historicoAviso.set(null);
     this.chartRango.set(r);
   }
 
@@ -2954,18 +2885,30 @@ export class OperarComponent implements OnInit {
   // rango, feed caído, plazo sin universo), cae a IOL — mismo patrón
   // Cohen→IOL que ya usa fetchCedears() en app.ts. Regla 1: un [] o null de
   // Cohen NUNCA se considera respuesta válida, siempre dispara el fallback a
-  // IOL (ver switchMap abajo). Si IOL TAMBIÉN devuelve [] (símbolo sin serie
-  // real, feed caído), el gráfico muestra "Sin datos históricos" — nunca se
-  // inventan datos.
+  // IOL (ver switchMap abajo).
+  //
+  // Regla 3 (invariabilidad): si IOL TAMBIÉN devuelve [] para el rango nuevo
+  // (ej. 1S cayendo en un fin de semana largo sin ruedas, feed caído), NO se
+  // pisa historicoData() con un arreglo vacío ni se inventa nada — se
+  // CONSERVAN los últimos datos válidos ya cargados y se muestra un aviso
+  // amigable (historicoAviso) arriba del gráfico vigente.
   private loadHistorico(symbol: string, rango: ChartRango) {
     const key = `${symbol}:${rango}`;
     const cached = this.historicoCache.get(key);
     if (cached) {
       this.historicoData.set(cached);
+      this.historicoAviso.set(null);
       return;
     }
     this.historicoLoading.set(true);
-    const dias = RANGO_DIAS[rango];
+    // Ventana de calendario real del rango (1 semana/mes/semestre/año/
+    // quinquenio hacia atrás desde hoy, ver rangoFechaDesde) — `dias` para
+    // Cohen (cohenHistoricoUrl pide un entero de días, contrato sin tocar)
+    // se deriva de esa ventana en vez de un multiplicador fijo, así que
+    // "1M" siempre es un mes calendario real (28-31 días), no "30 días fijos".
+    const desde = rangoFechaDesde(rango);
+    const hasta = new Date();
+    const dias = Math.max(1, Math.ceil((hasta.getTime() - desde.getTime()) / 86_400_000));
 
     const iol$ = this.http
       .get<HistoricoPoint[]>(`/api/iol/historico?mercado=bCBA&simbolo=${encodeURIComponent(symbol)}&rango=${rango}`)
@@ -2976,7 +2919,9 @@ export class OperarComponent implements OnInit {
           // datos" (array vacío legítimo) — costó un diagnóstico entero
           // encontrar que esto tapaba un 404 real. El fallback a [] sigue
           // igual, pero el error ya no es mudo.
-          console.error('[Ficha] error cargando histórico (IOL)', { symbol, rango, status: err.status, body: err.error });
+          console.error('[Ficha] error cargando histórico (IOL)', {
+            symbol, rango, desde: ymd(desde), hasta: ymd(hasta), status: err.status, body: err.error,
+          });
           return of([] as HistoricoPoint[]);
         }),
       );
@@ -2992,16 +2937,24 @@ export class OperarComponent implements OnInit {
       : iol$;
 
     source$.subscribe((points) => {
+      this.historicoLoading.set(false);
+      const raw = Array.isArray(points) ? points : [];
+      if (!raw.length) {
+        // Regla 3: ni Cohen ni IOL trajeron datos para este rango — se deja
+        // historicoData() (y por lo tanto el gráfico) EXACTAMENTE como
+        // estaba, no se cachea el vacío (para reintentar en el próximo
+        // click a este mismo rango) y se avisa sin romper nada.
+        this.historicoAviso.set(`Sin cotizaciones de ${symbol} en el rango ${rango} (Cohen/IOL). Se muestran los últimos datos disponibles.`);
+        return;
+      }
       // Ambas fuentes pueden venir en cualquier orden (IOL: más reciente
       // primero; Cohen: ascendente por construcción, ver feed.py). Se
       // normaliza siempre a orden cronológico ascendente (viejo -> nuevo,
       // izq -> der).
-      const arr = (Array.isArray(points) ? points : [])
-        .slice()
-        .sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime());
+      const arr = raw.slice().sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime());
       this.historicoCache.set(key, arr);
       this.historicoData.set(arr);
-      this.historicoLoading.set(false);
+      this.historicoAviso.set(null);
     });
   }
 

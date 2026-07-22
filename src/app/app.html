@@ -11,6 +11,7 @@
            /operar/{ticker} a mano (deep-link, ver app.routes.ts). Para
            re-publicarlo: restaurar este botón y el redirect '' → 'operar'
            en app.routes.ts, y volver view a signal<View>('operaciones'). -->
+      <a class="seg-btn" routerLink="/operar" [class.on]="view() === 'operaciones'" (click)="setView('operaciones')">Operaciones</a>
       <button class="seg-btn" [class.on]="view() === 'arbitraje'" (click)="setView('arbitraje')">Arbitraje</button>
       <button class="seg-btn" [class.on]="view() === 'cotizaciones'" (click)="setView('cotizaciones')">Cotizaciones</button>
     </div>
