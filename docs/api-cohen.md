@@ -93,6 +93,20 @@ Mensaje de suscripción (`type: "smd"`):
 
 Cada actualización llega como mensaje `type: "Md"` con `instrumentId.symbol` y `marketData` (mismo formato que 2.2).
 
+### ⚠️ Trades históricos: NO disponibles en Cohen
+
+`GET /rest/data/getTrades` (lo que usa `pyRofex.get_trade_history` y el endpoint
+`/historico` de `feed.py`) responde `{"status": "OK", "trades": []}` para TODO
+instrumento en el entorno de Cohen. Verificado el 2026-07-22 con mercado abierto
+y operaciones concretadas ese mismo día: CEDEARs (AAPL, GGAL) en CI y 24hs,
+`marketId` ROFX y MERV, futuros DLR nativos, rangos largos y del día — siempre
+vacío. El endpoint existe pero el entitlement de historical data no está
+habilitado en el deployment de Cohen (habría que pedírselo a Cohen/Primary).
+
+Consecuencia: el gráfico histórico de la app cae SIEMPRE al fallback IOL
+(`/api/iol/historico`) — la cadena Cohen→IOL ya lo maneja solo, no es un bug.
+El `/historico` de `feed.py` queda deployado por si Cohen habilita el dato.
+
 ### ⚠️ Gotcha crítico
 
 **Si el mensaje de suscripción contiene UN solo símbolo que no existe en Cohen, el servidor rechaza el mensaje ENTERO** — ninguno de los símbolos del chunk queda suscripto. Peor: el error es solo un eco del request, sin descripción ni indicación de cuál símbolo falló:
