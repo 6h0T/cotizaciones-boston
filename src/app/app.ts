@@ -129,7 +129,7 @@ export class App implements OnInit, OnDestroy {
 
   // Nav de primer nivel (Arbitraje / Cotizaciones) y, dentro de Cotizaciones,
   // el casillero de detalle abierto ("Ver todo"); null = mosaico.
-  view = signal<View>('operaciones');
+  view = signal<View>('arbitraje');
   detailPanel = signal<string | null>(null);
   // Wrapper para pasar panelStatus como input a <app-cotizaciones>.
   statusFn = (id: string) => this.panelStatus(id);

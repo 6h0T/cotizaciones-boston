@@ -136,46 +136,6 @@ function formatChartTooltipDate(iso: string): string {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// Serie MOCK: último recurso cuando Cohen e IOL devuelven ambos [] (feed sin
-// credenciales en dev, símbolo sin histórico real, mercado sin datos, etc.).
-// El objetivo es que el gráfico SVG de Ficha/Ticket nunca quede en blanco
-// con "Sin datos históricos" — genera un paseo aleatorio suave con la MISMA
-// forma HistoricoPoint[] (fechaHora ascendente, un punto por día) que ya
-// consume chartLayout(). No pretende ser una cotización real: es sólo
-// placeholder visual para que la UI no quede vacía.
-function buildMockHistorico(symbol: string, dias: number): HistoricoPoint[] {
-  // Semilla determinística por símbolo: mismo symbol => misma serie mock en
-  // toda la sesión (no "salta" en cada refetch/rango).
-  let seed = 0;
-  for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) % 100000;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed / 2147483648;
-  };
-  const points = Math.max(2, Math.min(dias, 180)); // tope razonable de puntos a graficar
-  const basePrice = 100 + (seed % 900); // $100–$1000, estable por símbolo
-  let price = basePrice;
-  const out: HistoricoPoint[] = [];
-  const today = new Date();
-  for (let i = points - 1; i >= 0; i--) {
-    const day = new Date(today.getTime() - i * 86_400_000);
-    const drift = (rand() - 0.5) * 0.03; // ±1.5% diario
-    price = Math.max(1, price * (1 + drift));
-    const open = price * (1 - (rand() - 0.5) * 0.01);
-    out.push({
-      fechaHora: `${day.toISOString().slice(0, 10)}T00:00:00`,
-      apertura: +open.toFixed(2),
-      maximo: +Math.max(open, price).toFixed(2),
-      minimo: +Math.min(open, price).toFixed(2),
-      ultimoPrecio: +price.toFixed(2),
-      volumenNominal: Math.round(1000 + rand() * 9000),
-    });
-  }
-  return out;
-}
-
-
-
 @Component({
   selector: 'app-operar',
   standalone: true,
@@ -2994,9 +2954,9 @@ export class OperarComponent implements OnInit {
   // rango, feed caído, plazo sin universo), cae a IOL — mismo patrón
   // Cohen→IOL que ya usa fetchCedears() en app.ts. Regla 1: un [] o null de
   // Cohen NUNCA se considera respuesta válida, siempre dispara el fallback a
-  // IOL (ver switchMap abajo). Regla 2: si IOL TAMBIÉN devuelve [] (sin
-  // credenciales en dev, símbolo sin serie real, etc.), se genera una serie
-  // mock (buildMockHistorico) para que el gráfico nunca quede en blanco.
+  // IOL (ver switchMap abajo). Si IOL TAMBIÉN devuelve [] (símbolo sin serie
+  // real, feed caído), el gráfico muestra "Sin datos históricos" — nunca se
+  // inventan datos.
   private loadHistorico(symbol: string, rango: ChartRango) {
     const key = `${symbol}:${rango}`;
     const cached = this.historicoCache.get(key);
@@ -3015,19 +2975,16 @@ export class OperarComponent implements OnInit {
           // Sin este log, un 404/500 del proxy queda indistinguible de "sin
           // datos" (array vacío legítimo) — costó un diagnóstico entero
           // encontrar que esto tapaba un 404 real. El fallback a [] sigue
-          // igual (dispara el mock, ver abajo), pero el error ya no es mudo.
+          // igual, pero el error ya no es mudo.
           console.error('[Ficha] error cargando histórico (IOL)', { symbol, rango, status: err.status, body: err.error });
           return of([] as HistoricoPoint[]);
         }),
-        // Regla 2: IOL también vacío → serie mock, nunca [] al subscribe.
-        map((points) => (points.length ? points : buildMockHistorico(symbol, dias))),
       );
 
     const cohenUrl = cohenHistoricoUrl(symbol, 'H24', dias);
     const source$ = cohenUrl
       ? this.http.get<HistoricoPoint[]>(cohenUrl).pipe(
-          // Regla 1: [] o null de Cohen no es respuesta válida → cae a IOL
-          // (que a su vez cae al mock si también viene vacío, ver iol$).
+          // Regla 1: [] o null de Cohen no es respuesta válida → cae a IOL.
           map((points) => (Array.isArray(points) ? points : [])),
           catchError(() => of([] as HistoricoPoint[])),
           switchMap((points) => (points.length ? of(points) : iol$)),
@@ -3035,10 +2992,10 @@ export class OperarComponent implements OnInit {
       : iol$;
 
     source$.subscribe((points) => {
-      // Ambas fuentes reales pueden venir en cualquier orden (IOL: más
-      // reciente primero; Cohen: ascendente por construcción, ver feed.py);
-      // el mock ya sale ascendente. Se normaliza siempre a orden
-      // cronológico ascendente (viejo -> nuevo, izq -> der).
+      // Ambas fuentes pueden venir en cualquier orden (IOL: más reciente
+      // primero; Cohen: ascendente por construcción, ver feed.py). Se
+      // normaliza siempre a orden cronológico ascendente (viejo -> nuevo,
+      // izq -> der).
       const arr = (Array.isArray(points) ? points : [])
         .slice()
         .sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime());
