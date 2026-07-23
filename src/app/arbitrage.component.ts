@@ -1,7 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { JoyrideModule, JoyrideService } from 'ngx-joyride';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
@@ -22,20 +21,15 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 @Component({
   selector: 'app-arbitrage',
   standalone: true,
-  imports: [CommonModule, FormsModule, JoyrideModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="arb">
       <div class="arb-head">
-        <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">
-          Probar tour
-        </button>
-        <span
-          class="tour-selector"
-          joyrideStep="pasoEstrategias"
-          stepPosition="bottom"
-          title="Estrategias"
-          text="Elegí el tipo de dólar (MEP/CCL) y el plazo (CI/24h) para ver el arbitraje correspondiente."
-        >
+        <!-- Botón del tour OCULTO (pedido de Elio): el tour con driver.js sigue
+             vivo (ver startTour()), sólo se esconde su disparador. Para
+             re-publicarlo, restaurar este botón:
+             <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">Probar tour</button> -->
+        <span class="tour-selector">
           <span class="badge dollar">{{ dollarType() }}</span>
           <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
         </span>
@@ -110,9 +104,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
           [disabled]="paused()"
           (click)="freeze()"
           title="Congelar para operar"
-          joyrideStep="pasoCongelar"
-          stepPosition="bottom"
-          text="Cuando encontrés la oportunidad, tocá acá para pausar el refresh y operar en el broker sin que cambien los precios."
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           Congelar para operar
@@ -415,9 +406,9 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     }
     .freeze-btn:hover { opacity: .88; }
     .freeze-btn:active { transform: translateY(1px); }
-    /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que ngx-joyride pueda
-       ubicarlo como 2.º paso del tour aunque la página ya esté congelada;
-       cuando está pausada, se oculta visualmente sin desaparecer del layout. */
+    /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que el tour (driver.js)
+       pueda ubicarlo como 2.º paso aunque la página ya esté congelada; cuando
+       está pausada, se oculta visualmente sin desaparecer del layout. */
     .freeze-btn.is-hidden { visibility: hidden; pointer-events: none; }
 
     .freeze-bar {
@@ -690,80 +681,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
     .tour-selector { display: inline-flex; gap: 8px; align-items: center; }
 
-    /* ── ngx-joyride: alinear el popover al UI kit ────────────────────────
-       El popover NO se porta a <body>: se inserta como hermano del elemento
-       marcado con joyrideStep, dentro del árbol normal de la página. La
-       librería lo posiciona con position:absolute calculando el offset
-       como si su "containing block" fuera el body (top/left del target +
-       scroll de la página). Pero como no es realmente hijo directo del
-       body, apenas hay CUALQUIER ancestro con position relative/absolute/
-       sticky en el shell (toolbar, layout, etc. — fuera de este archivo),
-       ese cálculo queda relativo a ESE ancestro en vez del documento, y el
-       popover termina "pegado" abajo a la izquierda de ese contenedor en
-       lugar de al lado del recuadro resaltado.
-       Fix: forzamos position:fixed, que SIEMPRE se posiciona respecto al
-       viewport sin importar ancestros posicionados (mismo resultado que la
-       fórmula absoluta de la librería, siempre que el scroll esté en 0 —
-       por eso startTour() hace window.scrollTo(0, 0) antes de arrancar). */
-    ::ng-deep .joyride-step__holder {
-      position: fixed !important;
-      z-index: 10000 !important;
-    }
-    ::ng-deep .joyride-step__arrow { z-index: 10001 !important; }
-    ::ng-deep .joyride-step__container {
-      background: var(--surface) !important;
-      color: var(--ink) !important;
-      border: 1px solid var(--line) !important;
-      border-radius: var(--r-lg) !important;
-      box-shadow: var(--shadow) !important;
-      font-family: var(--font-ui) !important;
-    }
-    ::ng-deep .joyride-step__title {
-      color: var(--ink) !important;
-      font-family: var(--font-display) !important;
-      font-weight: 700 !important;
-    }
-    ::ng-deep .joyride-step__body {
-      color: var(--ink-2) !important;
-      font-size: 12.5px !important;
-    }
-    ::ng-deep .joyride-step__header {
-      border-bottom: 1px solid var(--line) !important;
-    }
-    ::ng-deep .joyride-step__counter {
-      color: var(--ink-3) !important;
-      font-family: var(--font-mono) !important;
-    }
-    ::ng-deep .joyride-arrow--top polygon,
-    ::ng-deep .joyride-arrow--bottom polygon,
-    ::ng-deep .joyride-arrow--left polygon,
-    ::ng-deep .joyride-arrow--right polygon {
-      fill: var(--surface) !important;
-    }
-    ::ng-deep .joyride-button {
-      border-radius: var(--r-sm) !important;
-      font-family: var(--font-ui) !important;
-      font-size: 12.5px !important;
-      font-weight: 600 !important;
-      border: 1px solid var(--line) !important;
-    }
-    ::ng-deep .joyride-button--next,
-    ::ng-deep .joyride-button--done {
-      background: var(--ink) !important;
-      color: #fff !important;
-      border-color: var(--ink) !important;
-    }
-    ::ng-deep .joyride-button--prev,
-    ::ng-deep .joyride-button--close {
-      background: var(--surface) !important;
-      color: var(--ink) !important;
-    }
-    ::ng-deep .joyride-step__close svg {
-      fill: var(--ink-3) !important;
-    }
-
-    /* ── driver.js: alinear el popover al UI kit (reemplaza el bloque
-       ::ng-deep .joyride-* de más arriba, que se retira en el cleanup) ──── */
+    /* ── driver.js: alinear el popover del tour al UI kit ─────────────────── */
     ::ng-deep .driver-popover {
       background: var(--surface) !important;
       color: var(--ink) !important;
@@ -840,8 +758,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
   `],
 })
 export class ArbitrageComponent {
-  constructor(private joyrideService: JoyrideService) {}
-
   startTour() {
     window.scrollTo(0, 0);
     // allowClose:false bloquea el cierre por click en el overlay (y Escape),
