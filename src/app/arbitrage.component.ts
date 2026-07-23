@@ -1,6 +1,9 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { JoyrideModule, JoyrideService } from 'ngx-joyride';
+import { driver } from 'driver.js';
+import 'driver.js/dist/driver.css';
 
 import {
   CedearRow,
@@ -19,68 +22,81 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 @Component({
   selector: 'app-arbitrage',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, JoyrideModule],
   template: `
     <div class="arb">
       <div class="arb-head">
-        <span class="badge dollar">{{ dollarType() }}</span>
-        <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
+        <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">
+          Probar tour
+        </button>
+        <span
+          class="tour-selector"
+          joyrideStep="pasoEstrategias"
+          stepPosition="bottom"
+          title="Estrategias"
+          text="Elegí el tipo de dólar (MEP/CCL) y el plazo (CI/24h) para ver el arbitraje correspondiente."
+        >
+          <span class="badge dollar">{{ dollarType() }}</span>
+          <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
+        </span>
 
-        <label class="monto">
-          Monto inicial ARS
-          <input
-            type="number"
-            min="1000"
-            step="1000"
-            [ngModel]="amountArs()"
-            (ngModelChange)="amountArs.set(+$event || 0)"
-          />
-        </label>
-
-        <label class="monto budget">
-          Presupuesto real ARS
-          <input
-            type="number"
-            min="1000"
-            step="1000"
-            [ngModel]="budgetArs()"
-            (ngModelChange)="budgetArs.set(+$event >= 0 ? +$event : 0)"
-          />
-        </label>
-
-        <label class="monto comm">
-          Comisión / gastos %
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            [ngModel]="commissionPct()"
-            (ngModelChange)="commissionPct.set(+$event >= 0 ? +$event : 0)"
-          />
-        </label>
-
-        <label class="monto vol">
-          Vol. mín USD
-          <input
-            type="number"
-            min="0"
-            step="100"
-            [ngModel]="minUsdVol()"
-            (ngModelChange)="minUsdVol.set(+$event >= 0 ? +$event : 0)"
-          />
-        </label>
-
-        @if (settlement() === 'CI' && !ciIsReal()) {
-          <label class="monto ci">
-            Ajuste CI %
+        <div class="tour-params">
+          <label class="monto">
+            Monto inicial ARS
             <input
               type="number"
-              step="0.05"
-              [ngModel]="ciAdjustPct()"
-              (ngModelChange)="ciAdjustPct.set(+$event || 0)"
+              min="1000"
+              step="1000"
+              [ngModel]="amountArs()"
+              (ngModelChange)="amountArs.set(+$event || 0)"
             />
           </label>
-        }
+
+          <label class="monto budget">
+            Presupuesto real ARS
+            <input
+              type="number"
+              min="1000"
+              step="1000"
+              [ngModel]="budgetArs()"
+              (ngModelChange)="budgetArs.set(+$event >= 0 ? +$event : 0)"
+            />
+          </label>
+
+          <label class="monto comm">
+            Comisión / gastos %
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              [ngModel]="commissionPct()"
+              (ngModelChange)="commissionPct.set(+$event >= 0 ? +$event : 0)"
+            />
+          </label>
+
+          <label class="monto vol">
+            Vol. mín USD
+            <input
+              type="number"
+              min="0"
+              step="100"
+              [ngModel]="minUsdVol()"
+              (ngModelChange)="minUsdVol.set(+$event >= 0 ? +$event : 0)"
+            />
+          </label>
+
+          @if (settlement() === 'CI' && !ciIsReal()) {
+            <label class="monto ci">
+              Ajuste CI %
+              <input
+                type="number"
+                step="0.05"
+                [ngModel]="ciAdjustPct()"
+                (ngModelChange)="ciAdjustPct.set(+$event || 0)"
+              />
+            </label>
+          }
+        </div>
 
         <span class="pair-count">
           {{ buyOptions().length }} compra · {{ sellOptions().length }} venta
@@ -88,12 +104,19 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
           <span class="pc-total">/ {{ pairs().length }} totales</span>
         </span>
 
-        @if (!paused()) {
-          <button class="freeze-btn" (click)="freeze()" title="Pausar el refresh para operar en el broker">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Congelar para operar
-          </button>
-        }
+        <button
+          class="freeze-btn"
+          [class.is-hidden]="paused()"
+          [disabled]="paused()"
+          (click)="freeze()"
+          title="Congelar para operar"
+          joyrideStep="pasoCongelar"
+          stepPosition="bottom"
+          text="Cuando encontrés la oportunidad, tocá acá para pausar el refresh y operar en el broker sin que cambien los precios."
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Congelar para operar
+        </button>
       </div>
 
       @if (paused()) {
@@ -339,6 +362,10 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
       padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line);
     }
+    /* Wrapper solo para poder resaltar el grupo completo de parámetros en el
+       tour (driver.js necesita un bounding box propio); mismo layout que
+       tenían los <label class="monto"> sueltos dentro de .arb-head. */
+    .tour-params { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
     .badge {
       display: inline-flex; align-items: center; height: 24px; padding: 0 9px;
       border-radius: var(--r-sm); font-family: var(--font-mono);
@@ -388,6 +415,10 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     }
     .freeze-btn:hover { opacity: .88; }
     .freeze-btn:active { transform: translateY(1px); }
+    /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que ngx-joyride pueda
+       ubicarlo como 2.º paso del tour aunque la página ya esté congelada;
+       cuando está pausada, se oculta visualmente sin desaparecer del layout. */
+    .freeze-btn.is-hidden { visibility: hidden; pointer-events: none; }
 
     .freeze-bar {
       display: flex; align-items: center; gap: 14px;
@@ -646,6 +677,148 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
     }
 
+    /* Botón temporal para disparar el tour (PoC) */
+    .tour-test-btn {
+      align-self: center; height: 32px; padding: 0 12px;
+      border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+      border-radius: var(--r-sm); cursor: pointer;
+      font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
+      transition: background .12s, border-color .12s, transform .04s;
+    }
+    .tour-test-btn:hover { background: var(--surface-2); border-color: var(--line-2); }
+    .tour-test-btn:active { transform: translateY(1px); }
+
+    .tour-selector { display: inline-flex; gap: 8px; align-items: center; }
+
+    /* ── ngx-joyride: alinear el popover al UI kit ────────────────────────
+       El popover NO se porta a <body>: se inserta como hermano del elemento
+       marcado con joyrideStep, dentro del árbol normal de la página. La
+       librería lo posiciona con position:absolute calculando el offset
+       como si su "containing block" fuera el body (top/left del target +
+       scroll de la página). Pero como no es realmente hijo directo del
+       body, apenas hay CUALQUIER ancestro con position relative/absolute/
+       sticky en el shell (toolbar, layout, etc. — fuera de este archivo),
+       ese cálculo queda relativo a ESE ancestro en vez del documento, y el
+       popover termina "pegado" abajo a la izquierda de ese contenedor en
+       lugar de al lado del recuadro resaltado.
+       Fix: forzamos position:fixed, que SIEMPRE se posiciona respecto al
+       viewport sin importar ancestros posicionados (mismo resultado que la
+       fórmula absoluta de la librería, siempre que el scroll esté en 0 —
+       por eso startTour() hace window.scrollTo(0, 0) antes de arrancar). */
+    ::ng-deep .joyride-step__holder {
+      position: fixed !important;
+      z-index: 10000 !important;
+    }
+    ::ng-deep .joyride-step__arrow { z-index: 10001 !important; }
+    ::ng-deep .joyride-step__container {
+      background: var(--surface) !important;
+      color: var(--ink) !important;
+      border: 1px solid var(--line) !important;
+      border-radius: var(--r-lg) !important;
+      box-shadow: var(--shadow) !important;
+      font-family: var(--font-ui) !important;
+    }
+    ::ng-deep .joyride-step__title {
+      color: var(--ink) !important;
+      font-family: var(--font-display) !important;
+      font-weight: 700 !important;
+    }
+    ::ng-deep .joyride-step__body {
+      color: var(--ink-2) !important;
+      font-size: 12.5px !important;
+    }
+    ::ng-deep .joyride-step__header {
+      border-bottom: 1px solid var(--line) !important;
+    }
+    ::ng-deep .joyride-step__counter {
+      color: var(--ink-3) !important;
+      font-family: var(--font-mono) !important;
+    }
+    ::ng-deep .joyride-arrow--top polygon,
+    ::ng-deep .joyride-arrow--bottom polygon,
+    ::ng-deep .joyride-arrow--left polygon,
+    ::ng-deep .joyride-arrow--right polygon {
+      fill: var(--surface) !important;
+    }
+    ::ng-deep .joyride-button {
+      border-radius: var(--r-sm) !important;
+      font-family: var(--font-ui) !important;
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+      border: 1px solid var(--line) !important;
+    }
+    ::ng-deep .joyride-button--next,
+    ::ng-deep .joyride-button--done {
+      background: var(--ink) !important;
+      color: #fff !important;
+      border-color: var(--ink) !important;
+    }
+    ::ng-deep .joyride-button--prev,
+    ::ng-deep .joyride-button--close {
+      background: var(--surface) !important;
+      color: var(--ink) !important;
+    }
+    ::ng-deep .joyride-step__close svg {
+      fill: var(--ink-3) !important;
+    }
+
+    /* ── driver.js: alinear el popover al UI kit (reemplaza el bloque
+       ::ng-deep .joyride-* de más arriba, que se retira en el cleanup) ──── */
+    ::ng-deep .driver-popover {
+      background: var(--surface) !important;
+      color: var(--ink) !important;
+      border: 1px solid var(--line) !important;
+      border-radius: var(--r-lg) !important;
+      box-shadow: var(--shadow) !important;
+      font-family: var(--font-ui) !important;
+      max-width: 320px !important;
+    }
+    ::ng-deep .driver-popover-title {
+      color: var(--ink) !important;
+      font-family: var(--font-display) !important;
+      font-weight: 700 !important;
+      font-size: 14px !important;
+    }
+    ::ng-deep .driver-popover-description {
+      color: var(--ink-2) !important;
+      font-size: 12.5px !important;
+      line-height: 1.5 !important;
+    }
+    ::ng-deep .driver-popover-progress-text {
+      color: var(--ink-3) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 11px !important;
+    }
+    ::ng-deep .driver-popover-navigation-btns button {
+      background: var(--surface) !important;
+      color: var(--ink) !important;
+      border: 1px solid var(--line) !important;
+      border-radius: var(--r-sm) !important;
+      font-family: var(--font-ui) !important;
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+      text-shadow: none !important;
+    }
+    ::ng-deep .driver-popover-next-btn,
+    ::ng-deep .driver-popover-done-btn {
+      background: var(--accent) !important;
+      color: #fff !important;
+      border-color: var(--accent) !important;
+    }
+    ::ng-deep .driver-popover-close-btn {
+      /* driver.js oculta este botón (display:none inline) cuando
+         allowClose es false; lo reforzamos visible porque acá el cierre
+         se maneja a mano vía onCloseClick (ver startTour()). */
+      display: block !important;
+      color: var(--ink-3) !important;
+    }
+    ::ng-deep .driver-popover-arrow-side-top.driver-popover-arrow,
+    ::ng-deep .driver-popover-arrow-side-bottom.driver-popover-arrow,
+    ::ng-deep .driver-popover-arrow-side-left.driver-popover-arrow,
+    ::ng-deep .driver-popover-arrow-side-right.driver-popover-arrow {
+      border-color: var(--surface) !important;
+    }
+
     @media (max-width: 480px) {
       .arb-head { flex-direction: row; flex-wrap: wrap; gap: 8px; align-items: center; }
       .badge { height: 22px; padding: 0 7px; font-size: 10px; }
@@ -667,6 +840,72 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
   `],
 })
 export class ArbitrageComponent {
+  constructor(private joyrideService: JoyrideService) {}
+
+  startTour() {
+    window.scrollTo(0, 0);
+    // allowClose:false bloquea el cierre por click en el overlay (y Escape),
+    // pero en driver.js@1.8 esa misma flag también apaga el botón X y el
+    // cierre por closeClick interno. Por eso proveemos onCloseClick propio
+    // (bypassea el gate de allowClose) y forzamos la visibilidad del botón
+    // X por CSS (ver ::ng-deep .driver-popover-close-btn más abajo).
+    let tourDriver: ReturnType<typeof driver>;
+    tourDriver = driver({
+      showProgress: true,
+      allowClose: false,
+      nextBtnText: 'Siguiente',
+      prevBtnText: 'Anterior',
+      doneBtnText: 'Hecho',
+      progressText: '{{current}} de {{total}}',
+      onCloseClick: () => tourDriver.destroy(),
+      steps: [
+        {
+          element: '.tour-selector',
+          popover: {
+            title: 'Elegí tu tipo de operación',
+            description: 'Operá con Dólar MEP o Contado con Liquidación, cada uno con su plazo de liquidación: Contado Inmediato o 24hs.',
+          },
+        },
+        {
+          element: '.freeze-btn',
+          popover: {
+            title: 'Fijá las cotizaciones',
+            description: 'Este botón congela los precios en tiempo real para que puedas revisar la operación con tranquilidad antes de ejecutarla.',
+          },
+        },
+        {
+          element: '.tour-params',
+          popover: {
+            title: 'Configurá tu inversión',
+            description: 'Definí el capital inicial en pesos y el volumen mínimo en dólares que querés operar.',
+          },
+        },
+        {
+          element: '.card.buy select',
+          popover: {
+            title: 'Así funciona el arbitraje',
+            description: 'La calculadora identifica el CEDEAR con el dólar comprador más barato y el más caro para vender, maximizando la diferencia de tipo de cambio.',
+          },
+        },
+        {
+          element: 'table.nm-table',
+          popover: {
+            title: 'Las 4 operaciones, paso a paso',
+            description: 'Comprás el CEDEAR y lo vendés en dólares. Después comprás otro CEDEAR en dólares y lo vendés en pesos. Cada pata queda detallada acá.',
+          },
+        },
+        {
+          element: '.nm-prof',
+          popover: {
+            title: 'Tu resultado final',
+            description: 'Mirá el % de ganancia neto, ya con comisiones descontadas. Se recomienda operar con arbitrajes de 2% o más para que valga la pena.',
+          },
+        },
+      ],
+    });
+    tourDriver.drive();
+  }
+
   // --- Inputs (signals input API) ---
   cedearRows = input<CedearRow[]>([]);
   dollarType = input<DollarType>('MEP');
