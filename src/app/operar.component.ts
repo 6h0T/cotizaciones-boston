@@ -148,6 +148,31 @@ interface ChartBaselinePoint {
             }
           </div>
 
+          <!-- Carrusel de Fondos (pedido de Elio): la sección Fondos dejó de
+               ser una card al pie de Home y pasó a ser este ticker horizontal
+               en el espacio libre entre el buscador y el panel de Dólar.
+               Marquee CSS infinito (ver .op-fondos-carousel): fondosTicker()
+               duplica fondosRows() para que el loop de translateX(-50%) sea
+               continuo sin salto. Pausa en hover (animation-play-state).
+               Encabezado simplificado vía fondoShortName(): saca sufijos
+               redundantes (FCI, "En Pesos", etc.) y normaliza MAYÚSCULAS.
+               Sólo se muestra con datos reales — cargando o con error no
+               ocupa lugar (la barra queda como estaba antes). -->
+          @if (fondosRows().length) {
+            <div class="op-fondos-carousel" title="Fondos — variación últimos 12 meses">
+              <div class="ofc-track">
+                @for (f of fondosTicker(); track $index) {
+                  <span class="ofc-item">
+                    <span class="ofc-name">{{ fondoShortName(f.name) }}</span>
+                    <span class="ofc-pct num" [class.pos]="f.variacionAnual >= 0" [class.neg]="f.variacionAnual < 0">
+                      {{ f.variacionAnual >= 0 ? '+' : '' }}{{ fmt(f.variacionAnual) }}%
+                    </span>
+                  </span>
+                }
+              </div>
+            </div>
+          }
+
           <!-- Widget compacto de Destacados, al lado del buscador. Rota
                automáticamente entre destacados() cada 4.5s (ver
                currentMoverIndex/rotatingMover/moverRotation en el
@@ -384,42 +409,6 @@ interface ChartBaselinePoint {
           </div>
         </div>
 
-        <!-- Fondos: datos reales vía api/iol/fondos.js → /api/v2/Titulos/FCI
-             (docs/api-iol.md §2.7, ver fondosRows()/loadFondos()) — ya NO es
-             la constante hardcodeada anterior. Sin fallback real posible:
-             data912 no cubre FCIs (ver market.config.ts), así que ante error
-             se muestra un estado explícito en vez de inventar un valor. El
-             detalle mostrado es variacionAnual (dato real más comparable
-             entre fondos de distinto perfil, ver FondoRow) — a diferencia
-             del hardcodeo anterior, TODOS los fondos reales traen
-             variación con signo (no hay ningún campo "TNA" en la respuesta
-             real de IOL), así que el color por signo aplica a los 4+ fondos
-             por igual, no sólo a uno. Semántica de color según ui-kit.md
-             §5.3: verde --pos = ganancia, rojo --neg = pérdida, nunca color
-             hardcodeado. Sin interacción nueva (no había ningún click
-             handler previo, ver diagnóstico — no se agrega ninguno acá). -->
-        <div class="op-card op-fondos">
-          <h3>Fondos</h3>
-          @if (fondosLoading()) {
-            <div class="op-empty">Cargando fondos…</div>
-          } @else if (fondosError()) {
-            <div class="op-empty">Fondos no disponible.</div>
-          } @else if (fondosRows().length) {
-            <div class="op-fondos-grid">
-              @for (f of fondosRows(); track f.symbol) {
-                <div class="op-fondo">
-                  <span class="of-name">{{ f.name }}</span>
-                  <span class="of-cat">{{ fondoTipoLabel(f.tipoFondo) }}</span>
-                  <span class="of-detail num" [class.pos]="f.variacionAnual >= 0" [class.neg]="f.variacionAnual < 0">
-                    {{ f.variacionAnual >= 0 ? '+' : '' }}{{ fmt(f.variacionAnual) }} % (12 m)
-                  </span>
-                </div>
-              }
-            </div>
-          } @else {
-            <div class="op-empty">Fondos no disponible.</div>
-          }
-        </div>
       } @else if (subview() === 'panel') {
         <div class="op-panel-head">
           <button class="op-back" (click)="goHome()">← Volver</button>
@@ -860,7 +849,7 @@ interface ChartBaselinePoint {
 
           @if (ticketBannerShown()) {
             <div class="op-warn-banner">
-              <p>La operatoria de IOL todavía no está habilitada para esta cuenta. Esta operación no fue enviada.</p>
+              <p>La operatoria online todavía no está habilitada para esta cuenta. Esta operación no fue enviada.</p>
               <button class="op-warn-banner-link" type="button" (click)="goCarteraFromTicket()">Ver en Cartera →</button>
             </div>
           }
@@ -876,7 +865,7 @@ interface ChartBaselinePoint {
         </div>
 
         <div class="op-warn-banner">
-          <p>DATOS SIMULADOS — no representa operaciones reales ni información de tu cuenta en IOL.</p>
+          <p>DATOS SIMULADOS — no representa operaciones reales ni información de tu cuenta.</p>
         </div>
 
         @if (tenencias().length) {
@@ -1245,6 +1234,15 @@ interface ChartBaselinePoint {
        (mismo instrumento global); ahora cada columna es independiente. */
     .op-acciones-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
     .op-acciones-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    /* Las tablas de Home llegan hasta el footer (pedido de Elio): altura fija
+       anclada al viewport en vez del max-height genérico de .op-table-wrap.
+       El descuento de 275px es la suma de todo lo que hay arriba y abajo de
+       la tabla en desktop: toolbar 52 + padding .panel 14 + op-home-head 40 +
+       gap 18 + borde/padding de card 15 + dropdown 40 + gap 10 (=189 arriba)
+       + padding card 15 + footer legal ~63 + 8 de aire (=86 abajo). height
+       (no max-height) para que ambas columnas queden parejas aunque una
+       tenga pocas filas. */
+    .op-acciones-grid .op-table-wrap { height: calc(100dvh - 275px); max-height: none; }
     /* Dropdown custom de instrumento de cada columna (reemplaza el <select>
        nativo, que no permite estilar el menú de opciones de forma
        consistente entre navegadores): botón fit-content con flecha pegada
@@ -1253,7 +1251,11 @@ interface ChartBaselinePoint {
     .op-dropdown { position: relative; align-self: flex-start; }
     .op-dropdown-btn {
       display: inline-flex; align-items: center; gap: 8px; width: fit-content;
-      height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      /* var(--r) y no --r-sm: este botón de 40px convive pegado a la esquina
+         --r-lg de la card y con los widgets de 40px de la barra superior
+         (buscador, Dólar, Destacada), todos en var(--r) — con --r-sm su
+         esquina se veía más recta que la de la card (pedido de Elio). */
+      height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r);
       background: var(--surface); color: var(--ink); font-family: var(--font-ui);
       font-size: 14px; font-weight: 600; cursor: pointer; outline: none;
       transition: border-color .12s, box-shadow .12s;
@@ -1407,23 +1409,35 @@ interface ChartBaselinePoint {
     .op-mover.op-mover-top .om-sym { font-size: 15px; }
     .op-mover.op-mover-top .om-px { font-size: 15px; font-weight: 600; }
 
-    /* Fondos — grilla fija de 2 columnas */
-    .op-fondos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .op-fondo {
-      display: flex; flex-direction: column; gap: 4px;
-      padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r);
+    /* Fondos — carrusel horizontal (marquee) en la barra superior de Home,
+       entre el buscador y el panel de Dólar (antes era una card con grilla
+       al pie). El track lleva el contenido DUPLICADO (ver fondosTicker());
+       la animación corre a translateX(-50%) y vuelve a 0: como cada mitad
+       mide exactamente lo mismo (margin-right fijo por item, sin gap ni
+       padding en el track, que romperían la simetría), el loop es continuo
+       sin salto visible. mask-image desvanece los bordes para que los items
+       no aparezcan/desaparezcan cortados en seco. Pausa en hover para poder
+       leer. Color por signo con los mismos tokens --pos/--neg de siempre
+       (ui-kit.md §5.3). */
+    .op-fondos-carousel {
+      height: 40px; display: flex; align-items: center;
+      overflow: hidden; position: relative;
+      border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+      mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 24px), transparent);
     }
-    .of-name { font-size: 13px; font-weight: 600; color: var(--ink); }
-    .of-cat { font-size: 11px; color: var(--ink-3); }
-    .of-detail { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-top: 2px; }
-    /* Todos los fondos reales traen variacionAnual con signo (ver FondoRow/
-       api/iol/fondos.js) — a diferencia del hardcodeo anterior (donde sólo
-       "Renta Variable" tenía signo y las otras 3 eran TNA sin P&L), acá el
-       color por signo aplica a cualquier fondo según su valor real. Mismo
-       par de tokens que usa .op-table-wrap td.num.pos/.neg (Panel) para el
-       mismo significado. */
-    .of-detail.pos { color: var(--pos); }
-    .of-detail.neg { color: var(--neg); }
+    .ofc-track {
+      display: inline-flex; align-items: center;
+      white-space: nowrap; width: max-content;
+      animation: ofc-scroll 45s linear infinite;
+    }
+    .op-fondos-carousel:hover .ofc-track { animation-play-state: paused; }
+    .ofc-item { display: inline-flex; align-items: baseline; gap: 6px; margin-right: 28px; }
+    .ofc-name { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+    .ofc-pct { font-size: 12px; font-weight: 700; }
+    .ofc-pct.pos { color: var(--pos); }
+    .ofc-pct.neg { color: var(--neg); }
+    @keyframes ofc-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
     /* Panel — header + buscador propio */
     .op-panel-head { display: flex; align-items: center; gap: 12px; }
@@ -1436,7 +1450,9 @@ interface ChartBaselinePoint {
       border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2);
     }
     .op-cur-pill {
-      height: 28px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
+      /* Radio concéntrico: contenedor .op-cur-pills (--r) menos 4px de
+         padding+borde — mismo criterio que .seg-btn en app.css. */
+      height: 28px; padding: 0 12px; border: 0; border-radius: calc(var(--r) - 4px);
       background: transparent; color: var(--ink-2);
       font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; cursor: pointer;
       transition: background .14s, box-shadow .14s, color .14s;
@@ -1764,6 +1780,10 @@ interface ChartBaselinePoint {
        botón Cartera, que se mantienen flex-shrink:0/flex:1 como ya estaban. */
     .op-home-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
     .op-home-head .op-search-wrap { flex: 0 1 260px; min-width: 0; order: 1; margin-right: auto; }
+    /* El carrusel de Fondos absorbe todo el espacio libre entre el buscador
+       y el Dólar (flex:1) — cuando no hay datos no se renderiza y el
+       margin-right:auto del buscador mantiene la barra como antes. */
+    .op-home-head .op-fondos-carousel { flex: 1 1 0; min-width: 160px; order: 1; }
     .op-home-head .op-top-dolar { flex-shrink: 0; order: 2; }
     .op-home-head .op-top-mover { flex-shrink: 0; order: 3; }
     .op-home-head .op-cartera-btn { order: 4; }
@@ -2724,6 +2744,28 @@ export class OperarComponent implements OnInit, OnDestroy {
     return FONDO_TIPO_LABEL[tipoFondo] ?? tipoFondo;
   }
 
+  // Filas duplicadas para el marquee del carrusel de Fondos: el track
+  // renderiza la lista DOS veces y la animación corre a translateX(-50%),
+  // así el loop es continuo sin salto (ver .op-fondos-carousel en styles).
+  fondosTicker = computed<FondoRow[]>(() => {
+    const rows = this.fondosRows();
+    return rows.length ? [...rows, ...rows] : [];
+  });
+
+  // Encabezado simplificado para el carrusel: saca sufijos que no aportan en
+  // un ticker compacto ("FCI", "En Pesos", "Fondo De Dinero") y normaliza
+  // los nombres que IOL manda EN MAYÚSCULAS (ej. "ADCAP BALANCEADO X") a
+  // Title Case. Sólo se tocan palabras de 4+ mayúsculas: siglas cortas como
+  // "IOL" y números romanos ("X", "XVI") quedan como están.
+  fondoShortName(name: string): string {
+    const cleaned = name
+      .replace(/\s+FCI$/i, '')
+      .replace(/\s+En Pesos$/i, '')
+      .replace(/\s+Fondo De Dinero$/i, '')
+      .trim();
+    return cleaned.replace(/[A-ZÁÉÍÓÚÜÑ]{4,}/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
+  }
+
   price(row: PanelRow | CedearRow | null | undefined): number {
     const px = +(row as any)?.px_bid;
     if (px > 0) return px;
@@ -2944,7 +2986,7 @@ export class OperarComponent implements OnInit, OnDestroy {
         // historicoData() (y por lo tanto el gráfico) EXACTAMENTE como
         // estaba, no se cachea el vacío (para reintentar en el próximo
         // click a este mismo rango) y se avisa sin romper nada.
-        this.historicoAviso.set(`Sin cotizaciones de ${symbol} en el rango ${rango} (Cohen/IOL). Se muestran los últimos datos disponibles.`);
+        this.historicoAviso.set(`Sin cotizaciones de ${symbol} en el rango ${rango}. Se muestran los últimos datos disponibles.`);
         return;
       }
       // Ambas fuentes pueden venir en cualquier orden (IOL: más reciente

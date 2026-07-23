@@ -272,6 +272,15 @@ export class CotizacionesComponent {
     return tiles;
   });
 
+  // Casillero Panel General para el modo simple (pedido de Elio: reemplaza a
+  // "Mejores oportunidades" en .basic-side). Reusa el MISMO tile que arma
+  // tableTiles() para el mosaico avanzado — misma fuente, mismo tileTpl, sin
+  // lógica duplicada. Siempre existe (tableTiles lo incluye fijo), el "?? "
+  // es sólo para tipar sin non-null assertion.
+  panelGeneralTile = computed<TableTile | null>(() =>
+    this.tableTiles().find((t) => t.id === 'panel-general') ?? null
+  );
+
   // Símbolos visibles que necesitan histórico data912 (solo bonos/letras —
   // índices y ETFs ya traen sus % resueltos desde Yahoo).
   private histSymbols = computed<string[]>(() => {

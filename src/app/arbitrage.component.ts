@@ -123,11 +123,11 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       @if (settlement() === 'CI') {
         @if (ciIsReal()) {
           <div class="ci-note real">
-            Contado Inmediato — libro real T+0 por símbolo (IOL), sólo pares con liquidez.
+            Contado Inmediato — libro real T+0 por símbolo, sólo pares con liquidez.
           </div>
         } @else {
           <div class="ci-note">
-            Contado Inmediato estimado desde el libro de 24hs (ajuste {{ fmt(ciAdjustPct(), 2) }} %) — IOL no disponible, usando data912.
+            Contado Inmediato estimado desde el libro de 24hs (ajuste {{ fmt(ciAdjustPct(), 2) }} %).
           </div>
         }
       }

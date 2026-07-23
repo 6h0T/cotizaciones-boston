@@ -385,7 +385,7 @@ export class App implements OnInit, OnDestroy {
           errAcc[r.id] = null;
           tsAcc[r.id] = ts;
         } else {
-          errAcc[r.id] = r.error ?? 'sin datos de Yahoo';
+          errAcc[r.id] = r.error ?? 'sin datos';
         }
       }
       this.data.set(dataAcc);
@@ -527,7 +527,7 @@ export class App implements OnInit, OnDestroy {
       this.cedearsFeed.update((f) => ({ ...f, t1: t1Src }));
       // El casillero CEDEARs de Cotizaciones usa el mismo libro.
       dataAcc['cedears'] = t1Rows;
-      errAcc['cedears'] = t1Real ? null : 'sin datos (Cohen/IOL)';
+      errAcc['cedears'] = t1Real ? null : 'sin datos';
       if (t1Real) tsAcc['cedears'] = now;
 
       this.data.set(dataAcc);
@@ -703,26 +703,21 @@ export class App implements OnInit, OnDestroy {
       const ts = this.lastUpdated()['cedears'];
       if (!ts) return 'esperando CEDEARs…';
       const sec = Math.round((Date.now() - ts.getTime()) / 1000);
+      // Sin nombre de proveedor en la UI (pedido de Elio 2026-07-23: no
+      // exponer qué APIs usamos en el dashboard) — sólo se distingue el caso
+      // "estimado desde 24hs" porque es una calidad de dato, no una fuente.
       const isCi = arbTab.settlement === 'CI';
       const real = isCi ? this.iolSource().t0 : this.iolSource().t1;
       const src = isCi ? this.cedearsFeed().t0 : this.cedearsFeed().t1;
-      const label =
-        src === 'cohen' ? 'Cohen' :
-        src === 'iol' ? 'IOL' :
-        real ? '—' : 'estimado desde 24hs';
-      return `hace ${sec}s · ${label}`;
+      const estimado = !src && !real;
+      return `hace ${sec}s${estimado ? ' · estimado desde 24hs' : ''}`;
     }
     const ts = this.lastUpdated()[id];
     const err = this.errors()[id];
     if (err) return `error: ${err.substring(0, 30)}`;
     if (!ts) return '—';
     const sec = Math.round((Date.now() - ts.getTime()) / 1000);
-    if (id === 'cedears') {
-      const s = this.cedearsFeed().t1;
-      return `hace ${sec}s${s ? ` · ${s === 'cohen' ? 'Cohen' : 'IOL'}` : ''}`;
-    }
-    const src = this.feedSource()[id];
-    return `hace ${sec}s${src === undefined ? '' : src ? ' · IOL' : ' · data912'}`;
+    return `hace ${sec}s`;
   }
 
   // --- Monitor de alertas ---

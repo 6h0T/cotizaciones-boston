@@ -56,7 +56,10 @@
   font-size: 12.5px; font-weight: 500;
   color: var(--ink-2);
   padding: 6px 11px;
-  border-radius: var(--r-sm);
+  /* Radio anidado concéntrico: el del contenedor .seg (--r-lg) menos la
+     distancia entre bordes (3px padding + 1px borde). Con --r-sm quedaba
+     visiblemente más recto que la esquina del contenedor (pedido de Elio). */
+  border-radius: calc(var(--r-lg) - 4px);
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
@@ -292,7 +295,14 @@ tbody tr:hover td { background: var(--accent-sf); }
   background: rgba(253,253,252,.82); backdrop-filter: saturate(180%) blur(12px);
   border-top: 1px solid var(--line);
   font-size: 11px; color: var(--ink-3);
+  text-align: center;
 }
+/* Texto legal (pedido de Elio, reemplaza la línea de fuentes de datos): tres
+   líneas chicas centradas. A ~10.5px el footer mide ~63px de alto — el
+   padding-bottom de .panel (64px) lo cubre justo, y la altura de las tablas
+   de Operar Home descuenta este alto (ver .op-acciones-grid .op-table-wrap
+   en operar.component.ts): si se agrega o saca una línea acá, ajustar allá. */
+.foot-legal { margin: 0; font-size: 10.5px; line-height: 1.5; }
 
 /* ── Alert toggle (campana) ───────────────────────────────────────────────── */
 .alert-toggle {
