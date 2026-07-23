@@ -152,7 +152,13 @@
       @if (detailPanel()) {
         <button class="back-btn" (click)="closeDetail()">← Cotizaciones</button>
       }
-      <strong>{{ subbarTitle() }}</strong>
+      <!-- En Arbitraje el título se omite: la categoría (dólar + plazo) ya la
+           muestran los badges de arb-head dentro del componente, mostrarla acá
+           arriba la duplicaba. Se mantiene para el detalle de Cotizaciones
+           ("Ver todo" / Mapa de calor), que no tiene esos badges. -->
+      @if (view() !== 'arbitraje') {
+        <strong>{{ subbarTitle() }}</strong>
+      }
       <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
       @if (effectivePaused()) {
         <span class="pill warn">{{ marketClosedAutoPause() ? 'Mercado cerrado' : 'Snapshot congelado' }}</span>

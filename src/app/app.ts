@@ -2,7 +2,10 @@ import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterOutlet, RouterLink, NavigationEnd } from '@angular/router';
+// RouterLink se quitó al ocultar el botón "Operaciones" del nav (su único uso);
+// si se restaura ese botón (ver comentario en app.html), reañadir RouterLink acá
+// y al array de imports.
+import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { forkJoin, Observable, Subscription, timer } from 'rxjs';
 import { catchError, filter, map, of, switchMap } from 'rxjs';
 import * as XLSX from 'xlsx';
@@ -116,7 +119,7 @@ type View = 'arbitraje' | 'cotizaciones' | 'operaciones';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterOutlet, RouterLink, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
+  imports: [CommonModule, FormsModule, RouterOutlet, ArbitrageComponent, CotizacionesComponent, CedearsHeatmapComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
