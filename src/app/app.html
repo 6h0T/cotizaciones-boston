@@ -9,9 +9,11 @@
       <!-- Operar está OCULTO del nav (operatoria aún simulada, no lista para
            usuarios). El código sigue vivo: se entra navegando a /operar o
            /operar/{ticker} a mano (deep-link, ver app.routes.ts). Para
-           re-publicarlo: restaurar este botón y el redirect '' → 'operar'
-           en app.routes.ts, y volver view a signal<View>('operaciones'). -->
-      <a class="seg-btn" routerLink="/operar" [class.on]="view() === 'operaciones'" (click)="setView('operaciones')">Operaciones</a>
+           re-publicarlo, restaurar este botón:
+           <a class="seg-btn" routerLink="/operar" [class.on]="view() === 'operaciones'" (click)="setView('operaciones')">Operaciones</a>
+           y opcionalmente el redirect '' → 'operar' en app.routes.ts y
+           view a signal<View>('operaciones') en app.ts. -->
+
       <button class="seg-btn" [class.on]="view() === 'arbitraje'" (click)="setView('arbitraje')">Arbitraje</button>
       <button class="seg-btn" [class.on]="view() === 'cotizaciones'" (click)="setView('cotizaciones')">Cotizaciones</button>
     </div>
