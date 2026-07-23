@@ -34,7 +34,7 @@ import re
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -287,6 +287,25 @@ def on_market_data(message: dict) -> None:
 
 AUTH_RETRY_SEC = 300  # si Cohen rechaza credenciales, reintentar cada 5 min
 
+# Watchdog anti-zombie (incidente 2026-07-23): el WS de Cohen puede morir en
+# silencio (la TCP queda abierta, on_exception nunca dispara) y el feed sirve
+# libros viejos para siempre. Si en horario de mercado pasan más de estos
+# segundos sin NINGÚN mensaje, se recicla la conexión entera.
+WATCHDOG_STALE_SEC = 300
+
+
+def market_likely_open() -> bool:
+    """Ventana amplia de rueda BYMA: lunes a viernes 10:30–17:30 ART (UTC-3
+    fijo, Argentina no tiene DST). Fuera de esa ventana el silencio del WS es
+    normal (mercado cerrado, sin puntas) y el watchdog no debe reciclar. La
+    ventana arranca antes de la apertura (11:00) a propósito: así la primera
+    revisión post-apertura ya corre con la suscripción recién renovada."""
+    now = datetime.now(timezone(timedelta(hours=-3)))
+    if now.weekday() >= 5:
+        return False
+    hm = now.hour * 60 + now.minute
+    return 10 * 60 + 30 <= hm <= 17 * 60 + 30
+
 
 def start_live(env: dict[str, str]) -> None:
     """Hilo de conexión resiliente: el proceso NUNCA muere por auth o caída de
@@ -383,6 +402,7 @@ def start_live(env: dict[str, str]) -> None:
                     )
                 BOOKS.connected = True
                 backoff = 5
+                connected_since = time.time()
                 print(f"[feed] conectado a {ws_url} — {len(subscribable)} instrumentos suscriptos")
             except Exception as exc:
                 print(f"[feed] conexión WS falló: {exc} — reintento en {backoff}s")
@@ -390,9 +410,20 @@ def start_live(env: dict[str, str]) -> None:
                 backoff = min(backoff * 2, 120)
                 continue
 
-            # 3) Vigilar la conexión; si se cae, volver a empezar.
+            # 3) Vigilar la conexión; si se cae —o si el watchdog detecta un
+            #    WS zombie— volver a empezar. La referencia de "actividad" es
+            #    el último mensaje O el momento de conexión, lo que sea más
+            #    nuevo: sin ese piso, tras un reciclo en pre-apertura (sin
+            #    puntas todavía) el last_message_ts viejo haría reciclar en
+            #    loop cada 5s hasta el primer mensaje.
             while BOOKS.connected:
                 time.sleep(5)
+                if not market_likely_open():
+                    continue
+                idle = time.time() - max(BOOKS.last_message_ts or 0.0, connected_since)
+                if idle > WATCHDOG_STALE_SEC:
+                    print(f"[feed] watchdog: {round(idle)}s sin mensajes con mercado abierto — reciclo el WS")
+                    BOOKS.connected = False
             print("[feed] ws caído — reconectando…")
 
     threading.Thread(target=run, daemon=True, name="cohen-ws").start()
