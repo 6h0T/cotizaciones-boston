@@ -256,7 +256,6 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
           <div class="nominals total">
             <div class="nm-head">
               <h3>3. Resultado del trade · cuenta total</h3>
-              <span class="nm-sub">Ejercicio con nominales enteros para un presupuesto de <strong>$ {{ fmt(budgetArs(), 0) }}</strong> ARS. La 2.ª pata se financia con los USD reales de la 1.ª. La <em>Ganancia</em> se mide contra lo invertido (no el presupuesto) y despliega <em>todos</em> los dólares obtenidos: el sobrante en USD se valúa al tipo de la pata vendedora y suma.</span>
             </div>
 
             @if (nominalsPlan(); as plan) {
