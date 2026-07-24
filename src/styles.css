@@ -15,7 +15,7 @@
 
   /* Superficies — off-white papel de baja fatiga (no blanco puro: reduce el glare
      y deja que el color semántico llame la atención, como el negro de Bloomberg). */
-  --bg:        #f3f2f0;
+  --bg:        #ffffff;  /* blanco puro, igual que el /ui-kit de boston-ar (--background: oklch(1 0 0)) */
   --surface:   #fdfdfc;
   --surface-2: #efeeeb;
   --surface-3: #e6e5e1;

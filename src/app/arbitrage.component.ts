@@ -326,9 +326,9 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
                     <span class="nm-pval">$ {{ fmt(plan.grossProfit, 2) }}</span>
                     <span class="nm-ppct">{{ fmt(plan.grossProfit / plan.arsSpent * 100, 2) }} %</span>
                   </span>
-                  <span class="nm-net">recibís $ {{ fmt(plan.arsOutFull, 2) }} (incl. sobrante USD) − invertís $ {{ fmt(plan.arsSpent, 2) }}</span>
+                  <span class="nm-net">recibís <span class="n">$ {{ fmt(plan.arsOutFull, 2) }}</span> <span class="muted">(incl. sobrante USD)</span> · invertís <span class="n">$ {{ fmt(plan.arsSpent, 2) }}</span></span>
                   @if (commissionPct() > 0) {
-                    <span class="nm-net">tras {{ fmt(commissionPct(), 2) }} % comisión: $ {{ fmt(plan.netProfit, 2) }} · {{ fmt(plan.netPct, 2) }} %</span>
+                    <span class="nm-net">tras <span class="n">{{ fmt(commissionPct(), 2) }} %</span> comisión <span class="n">$ {{ fmt(plan.netProfit, 2) }}</span> · <span class="n">{{ fmt(plan.netPct, 2) }} %</span></span>
                   }
                 </div>
               </div>
@@ -560,16 +560,29 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
     .nm-left .nm-val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
     .nm-left .nm-sep { color: var(--line); }
     .nm-left .nm-note { font-size: 11px; color: var(--ink-3); font-style: italic; }
-    .nm-prof { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; padding: 6px 14px; border-radius: var(--r); }
-    .nm-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
-    .nm-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
-    .nm-prof .nm-lbl {
-      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+    /* Lectura de P&L: contenedor limpio sobre --surface con un hairline que sólo
+       se tiñe según el signo (sin relleno de color, sin franja lateral). El color
+       saturado vive únicamente en la cifra, como el resto del sistema. */
+    .nm-prof {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+      padding: 9px 16px; border-radius: var(--r);
+      background: var(--surface); border: 1px solid var(--line);
     }
-    .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; }
-    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
-    .nm-prof .nm-net { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+    .nm-prof.pos { border-color: var(--pos-line); }
+    .nm-prof.neg { border-color: var(--neg-line); }
+    .nm-prof .nm-lbl {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3);
+    }
+    .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; line-height: 1; }
+    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 25px; font-weight: 700; letter-spacing: -0.02em; }
+    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+    /* Secundario: palabras en la tipografía de UI, sólo las cifras en mono. */
+    .nm-prof .nm-net {
+      font-family: var(--font-ui); font-size: 11.5px; font-weight: 500;
+      color: var(--ink-3); line-height: 1.5; text-align: right;
+    }
+    .nm-prof .nm-net .n { font-family: var(--font-mono); font-weight: 600; color: var(--ink-2); }
+    .nm-prof .nm-net .muted { color: var(--ink-3); opacity: .65; }
     .nm-prof.pos .nm-pval, .nm-prof.pos .nm-ppct { color: var(--pos-strong); }
     .nm-prof.neg .nm-pval, .nm-prof.neg .nm-ppct { color: var(--neg-strong); }
 
@@ -752,6 +765,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       .nm-foot { flex-direction: column; align-items: stretch; }
       .nm-prof { align-items: stretch; text-align: center; }
       .nm-prof .nm-pmain { justify-content: center; }
+      .nm-prof .nm-net { text-align: center; }
       .grid { grid-template-columns: 1fr; }
     }
 
