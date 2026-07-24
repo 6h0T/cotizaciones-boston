@@ -399,12 +399,13 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
       align-self: center;
       display: inline-flex; align-items: center; gap: 6px;
       height: 32px; padding: 0 12px;
-      border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      border: 1px solid rgba(255,255,255,0.12); background: var(--navy-grad); color: #fff;
       border-radius: var(--r-sm); cursor: pointer;
+      box-shadow: var(--navy-shadow);
       font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
       transition: opacity .12s, transform .04s;
     }
-    .freeze-btn:hover { opacity: .88; }
+    .freeze-btn:hover { opacity: .92; transform: translateY(-1px); }
     .freeze-btn:active { transform: translateY(1px); }
     /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que el tour (driver.js)
        pueda ubicarlo como 2.º paso aunque la página ya esté congelada; cuando
@@ -551,7 +552,7 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
     .nm-foot {
       display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-      padding: 8px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
+      padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--line);
     }
     .nm-left { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
     .nm-left .nm-lbl {

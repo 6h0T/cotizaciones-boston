@@ -159,7 +159,12 @@
       @if (view() !== 'arbitraje') {
         <strong>{{ subbarTitle() }}</strong>
       }
-      <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
+      <!-- En Arbitraje se oculta el "hace Xs": quedaba descolocado (sin título)
+           y el estado de refresco ya lo da el intervalo (1 s) + "En vivo" del
+           navbar. Se mantiene para el detalle de Cotizaciones. -->
+      @if (view() !== 'arbitraje') {
+        <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
+      }
       @if (effectivePaused()) {
         <span class="pill warn">{{ marketClosedAutoPause() ? 'Mercado cerrado' : 'Snapshot congelado' }}</span>
       }

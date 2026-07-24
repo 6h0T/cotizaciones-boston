@@ -454,3 +454,60 @@ tbody tr:hover td { background: var(--accent-sf); }
   .controls .toggle { height: 22px; padding: 0 7px; font-size: 10px; }
   .rate { height: 18px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MATCH DASHBOARD (boston-ar) — capa de override. El dashboard ya aporta nav
+   con logo y footer legal, y un fondo azulado glass. Acá: fondo transparente
+   (deja ver el gradiente del body), botones liquid glass / navy, y se ocultan
+   logo y footer duplicados. Se mantiene la FORMA de los contenedores y la
+   colorimetría de % / charts (no se tocan --pos/--neg/--warn ni charts).
+   ═══════════════════════════════════════════════════════════════════════════ */
+:host { background: transparent; }
+
+/* Logo y footer: los provee el shell del dashboard → se ocultan acá. */
+.brand { display: none; }
+.foot  { display: none; }
+.panel, .panel.arb-panel { padding-bottom: 24px; }
+
+/* Toolbar y segmentado como barras glass frías. */
+.toolbar {
+  background: rgba(255,255,255,0.55);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--glass-stroke);
+}
+.seg {
+  background: rgba(255,255,255,0.45);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid var(--glass-stroke);
+}
+
+/* Botones neutros → liquid glass (icono, En vivo, Horario, campana). Los
+   estados semánticos (.toggle.paused, .alert-toggle.on, .hours-trigger.on)
+   tienen mayor especificidad y conservan su color. */
+.icon-btn, .toggle, .hours-trigger, .alert-toggle {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--glass-stroke);
+  color: var(--boston-700);
+  box-shadow: var(--glass-shadow);
+}
+.icon-btn:hover:not(:disabled),
+.toggle:hover,
+.hours-trigger:hover,
+.alert-toggle:hover {
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-stroke);
+  color: var(--boston-700);
+}
+
+/* Botón primario (XLSX) → gradiente navy del dashboard. */
+.export {
+  background: var(--navy-grad);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #fff;
+  box-shadow: var(--navy-shadow);
+}
+.export:hover { opacity: 1; transform: translateY(-1px); }
