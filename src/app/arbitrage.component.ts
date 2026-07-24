@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { AfterViewInit, Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { driver } from 'driver.js';
@@ -771,7 +771,20 @@ import { buildPairs, bestBuy, bestSell, computeTrade, buyLegUsd, sellLegUsd, sol
 
   `],
 })
-export class ArbitrageComponent {
+export class ArbitrageComponent implements AfterViewInit {
+  // Auto-dispara el instructivo la primera vez: boston-ar embebe este iframe con
+  // `?tour=1` solo en la primera visita del usuario (lo trackea del lado del
+  // contenedor). Acá lo leemos y lanzamos el tour una vez el DOM ya está listo.
+  ngAfterViewInit() {
+    try {
+      if (new URLSearchParams(location.search).get('tour') === '1') {
+        setTimeout(() => this.startTour(), 800);
+      }
+    } catch {
+      /* location/URLSearchParams no disponible: noop */
+    }
+  }
+
   startTour() {
     window.scrollTo(0, 0);
     // allowClose:false bloquea el cierre por click en el overlay (y Escape),
