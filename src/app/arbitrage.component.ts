@@ -27,7 +27,6 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
   template: `
     <div class="arb">
       <div class="arb-head">
-        <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">Probar tour</button>
         <span class="tour-selector">
           <span class="badge dollar">{{ dollarType() }}</span>
           <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
@@ -680,17 +679,6 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
       border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface);
     }
 
-    /* Botón temporal para disparar el tour (PoC) */
-    .tour-test-btn {
-      align-self: center; height: 32px; padding: 0 12px;
-      border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-      border-radius: var(--r-sm); cursor: pointer;
-      font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
-      transition: background .12s, border-color .12s, transform .04s;
-    }
-    .tour-test-btn:hover { background: var(--surface-2); border-color: var(--line-2); }
-    .tour-test-btn:active { transform: translateY(1px); }
-
     .tour-selector { display: inline-flex; gap: 8px; align-items: center; }
 
     /* ── driver.js: alinear el popover del tour al UI kit ─────────────────── */
@@ -831,7 +819,6 @@ export class ArbitrageComponent implements OnInit {
 
   startTour() {
     window.scrollTo(0, 0);
-    try { localStorage.setItem(ARB_TOUR_SEEN_KEY, '1'); } catch {}
     // allowClose:false bloquea el cierre por click en el overlay (y Escape),
     // pero en driver.js@1.8 esa misma flag también apaga el botón X y el
     // cierre por closeClick interno. Por eso proveemos onCloseClick propio
@@ -880,7 +867,13 @@ export class ArbitrageComponent implements OnInit {
       doneBtnText: 'Hecho',
       progressText: '{{current}} de {{total}}',
       onCloseClick: () => { clearAutoplayTimer(); tourDriver.destroy(); },
-      onDestroyed: () => clearAutoplayTimer(),
+      // Único punto de cierre común a los 3 caminos (X, Omitir, Hecho): todos
+      // pasan por tourDriver.destroy(), así que acá se marca "visto" una sola
+      // vez, recién cuando el usuario efectivamente cierra/termina el tour.
+      onDestroyed: () => {
+        clearAutoplayTimer();
+        try { localStorage.setItem(ARB_TOUR_SEEN_KEY, '1'); } catch {}
+      },
       onHighlighted: () => scheduleAutoplayStep(),
       // driver.js no expone moveNext/movePrevious "puros": setear onNextClick/
       // onPrevClick a nivel global reemplaza la navegación por defecto de esos
