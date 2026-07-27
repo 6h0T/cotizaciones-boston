@@ -1,7 +1,6 @@
 import { Component, OnInit, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { JoyrideModule, JoyrideService } from 'ngx-joyride';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
@@ -24,20 +23,15 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
 @Component({
   selector: 'app-arbitrage',
   standalone: true,
-  imports: [CommonModule, FormsModule, JoyrideModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="arb">
       <div class="arb-head">
-        <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">
-          Probar tour
-        </button>
-        <span
-          class="tour-selector"
-          joyrideStep="pasoEstrategias"
-          stepPosition="bottom"
-          title="Estrategias"
-          text="Elegí el tipo de dólar (MEP/CCL) y el plazo (CI/24h) para ver el arbitraje correspondiente."
-        >
+        <!-- Botón del tour OCULTO (pedido de Elio): el tour con driver.js sigue
+             vivo (ver startTour()), sólo se esconde su disparador. Para
+             re-publicarlo, restaurar este botón:
+             <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">Probar tour</button> -->
+        <span class="tour-selector">
           <span class="badge dollar">{{ dollarType() }}</span>
           <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
         </span>
@@ -112,9 +106,6 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
           [disabled]="paused()"
           (click)="freeze()"
           title="Congelar para operar"
-          joyrideStep="pasoCongelar"
-          stepPosition="bottom"
-          text="Cuando encontrés la oportunidad, tocá acá para pausar el refresh y operar en el broker sin que cambien los precios."
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           Congelar para operar
@@ -148,11 +139,11 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
       @if (settlement() === 'CI') {
         @if (ciIsReal()) {
           <div class="ci-note real">
-            Contado Inmediato — libro real T+0 por símbolo (IOL), sólo pares con liquidez.
+            Contado Inmediato — libro real T+0 por símbolo, sólo pares con liquidez.
           </div>
         } @else {
           <div class="ci-note">
-            Contado Inmediato estimado desde el libro de 24hs (ajuste {{ fmt(ciAdjustPct(), 2) }} %) — IOL no disponible, usando data912.
+            Contado Inmediato estimado desde el libro de 24hs (ajuste {{ fmt(ciAdjustPct(), 2) }} %).
           </div>
         }
       }
@@ -267,7 +258,6 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
           <div class="nominals total">
             <div class="nm-head">
               <h3>3. Resultado del trade · cuenta total</h3>
-              <span class="nm-sub">Ejercicio con nominales enteros para un presupuesto de <strong>$ {{ fmt(budgetArs(), 0) }}</strong> ARS. La 2.ª pata se financia con los USD reales de la 1.ª. La <em>Ganancia</em> se mide contra lo invertido (no el presupuesto) y despliega <em>todos</em> los dólares obtenidos: el sobrante en USD se valúa al tipo de la pata vendedora y suma.</span>
             </div>
 
             @if (nominalsPlan(); as plan) {
@@ -337,9 +327,9 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
                     <span class="nm-pval">$ {{ fmt(plan.grossProfit, 2) }}</span>
                     <span class="nm-ppct">{{ fmt(plan.grossProfit / plan.arsSpent * 100, 2) }} %</span>
                   </span>
-                  <span class="nm-net">recibís $ {{ fmt(plan.arsOutFull, 2) }} (incl. sobrante USD) − invertís $ {{ fmt(plan.arsSpent, 2) }}</span>
+                  <span class="nm-net">recibís <span class="n">$ {{ fmt(plan.arsOutFull, 2) }}</span> <span class="muted">(incl. sobrante USD)</span> · invertís <span class="n">$ {{ fmt(plan.arsSpent, 2) }}</span></span>
                   @if (commissionPct() > 0) {
-                    <span class="nm-net">tras {{ fmt(commissionPct(), 2) }} % comisión: $ {{ fmt(plan.netProfit, 2) }} · {{ fmt(plan.netPct, 2) }} %</span>
+                    <span class="nm-net">tras <span class="n">{{ fmt(commissionPct(), 2) }} %</span> comisión <span class="n">$ {{ fmt(plan.netProfit, 2) }}</span> · <span class="n">{{ fmt(plan.netPct, 2) }} %</span></span>
                   }
                 </div>
               </div>
@@ -410,16 +400,17 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
       align-self: center;
       display: inline-flex; align-items: center; gap: 6px;
       height: 32px; padding: 0 12px;
-      border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      border: 1px solid rgba(255,255,255,0.12); background: var(--navy-grad); color: #fff;
       border-radius: var(--r-sm); cursor: pointer;
+      box-shadow: var(--navy-shadow);
       font-family: var(--font-ui); font-size: 12.5px; font-weight: 600;
       transition: opacity .12s, transform .04s;
     }
-    .freeze-btn:hover { opacity: .88; }
+    .freeze-btn:hover { opacity: .92; transform: translateY(-1px); }
     .freeze-btn:active { transform: translateY(1px); }
-    /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que ngx-joyride pueda
-       ubicarlo como 2.º paso del tour aunque la página ya esté congelada;
-       cuando está pausada, se oculta visualmente sin desaparecer del layout. */
+    /* Se mantiene SIEMPRE en el DOM (nunca *ngIf) para que el tour (driver.js)
+       pueda ubicarlo como 2.º paso aunque la página ya esté congelada; cuando
+       está pausada, se oculta visualmente sin desaparecer del layout. */
     .freeze-btn.is-hidden { visibility: hidden; pointer-events: none; }
 
     .freeze-bar {
@@ -562,7 +553,7 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
 
     .nm-foot {
       display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-      padding: 8px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
+      padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--line);
     }
     .nm-left { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
     .nm-left .nm-lbl {
@@ -571,16 +562,29 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
     .nm-left .nm-val { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
     .nm-left .nm-sep { color: var(--line); }
     .nm-left .nm-note { font-size: 11px; color: var(--ink-3); font-style: italic; }
-    .nm-prof { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; padding: 6px 14px; border-radius: var(--r); }
-    .nm-prof.pos { background: var(--pos-bg); box-shadow: inset 3px 0 0 var(--pos); }
-    .nm-prof.neg { background: var(--neg-bg); box-shadow: inset 3px 0 0 var(--neg); }
-    .nm-prof .nm-lbl {
-      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3);
+    /* Lectura de P&L: contenedor limpio sobre --surface con un hairline que sólo
+       se tiñe según el signo (sin relleno de color, sin franja lateral). El color
+       saturado vive únicamente en la cifra, como el resto del sistema. */
+    .nm-prof {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+      padding: 9px 16px; border-radius: var(--r);
+      background: var(--surface); border: 1px solid var(--line);
     }
-    .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; }
-    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
-    .nm-prof .nm-net { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+    .nm-prof.pos { border-color: var(--pos-line); }
+    .nm-prof.neg { border-color: var(--neg-line); }
+    .nm-prof .nm-lbl {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-3);
+    }
+    .nm-prof .nm-pmain { display: flex; align-items: baseline; gap: 8px; line-height: 1; }
+    .nm-prof .nm-pval { font-family: var(--font-mono); font-size: 25px; font-weight: 700; letter-spacing: -0.02em; }
+    .nm-prof .nm-ppct { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+    /* Secundario: palabras en la tipografía de UI, sólo las cifras en mono. */
+    .nm-prof .nm-net {
+      font-family: var(--font-ui); font-size: 11.5px; font-weight: 500;
+      color: var(--ink-3); line-height: 1.5; text-align: right;
+    }
+    .nm-prof .nm-net .n { font-family: var(--font-mono); font-weight: 600; color: var(--ink-2); }
+    .nm-prof .nm-net .muted { color: var(--ink-3); opacity: .65; }
     .nm-prof.pos .nm-pval, .nm-prof.pos .nm-ppct { color: var(--pos-strong); }
     .nm-prof.neg .nm-pval, .nm-prof.neg .nm-ppct { color: var(--neg-strong); }
 
@@ -692,80 +696,7 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
 
     .tour-selector { display: inline-flex; gap: 8px; align-items: center; }
 
-    /* ── ngx-joyride: alinear el popover al UI kit ────────────────────────
-       El popover NO se porta a <body>: se inserta como hermano del elemento
-       marcado con joyrideStep, dentro del árbol normal de la página. La
-       librería lo posiciona con position:absolute calculando el offset
-       como si su "containing block" fuera el body (top/left del target +
-       scroll de la página). Pero como no es realmente hijo directo del
-       body, apenas hay CUALQUIER ancestro con position relative/absolute/
-       sticky en el shell (toolbar, layout, etc. — fuera de este archivo),
-       ese cálculo queda relativo a ESE ancestro en vez del documento, y el
-       popover termina "pegado" abajo a la izquierda de ese contenedor en
-       lugar de al lado del recuadro resaltado.
-       Fix: forzamos position:fixed, que SIEMPRE se posiciona respecto al
-       viewport sin importar ancestros posicionados (mismo resultado que la
-       fórmula absoluta de la librería, siempre que el scroll esté en 0 —
-       por eso startTour() hace window.scrollTo(0, 0) antes de arrancar). */
-    ::ng-deep .joyride-step__holder {
-      position: fixed !important;
-      z-index: 10000 !important;
-    }
-    ::ng-deep .joyride-step__arrow { z-index: 10001 !important; }
-    ::ng-deep .joyride-step__container {
-      background: var(--surface) !important;
-      color: var(--ink) !important;
-      border: 1px solid var(--line) !important;
-      border-radius: var(--r-lg) !important;
-      box-shadow: var(--shadow) !important;
-      font-family: var(--font-ui) !important;
-    }
-    ::ng-deep .joyride-step__title {
-      color: var(--ink) !important;
-      font-family: var(--font-display) !important;
-      font-weight: 700 !important;
-    }
-    ::ng-deep .joyride-step__body {
-      color: var(--ink-2) !important;
-      font-size: 12.5px !important;
-    }
-    ::ng-deep .joyride-step__header {
-      border-bottom: 1px solid var(--line) !important;
-    }
-    ::ng-deep .joyride-step__counter {
-      color: var(--ink-3) !important;
-      font-family: var(--font-mono) !important;
-    }
-    ::ng-deep .joyride-arrow--top polygon,
-    ::ng-deep .joyride-arrow--bottom polygon,
-    ::ng-deep .joyride-arrow--left polygon,
-    ::ng-deep .joyride-arrow--right polygon {
-      fill: var(--surface) !important;
-    }
-    ::ng-deep .joyride-button {
-      border-radius: var(--r-sm) !important;
-      font-family: var(--font-ui) !important;
-      font-size: 12.5px !important;
-      font-weight: 600 !important;
-      border: 1px solid var(--line) !important;
-    }
-    ::ng-deep .joyride-button--next,
-    ::ng-deep .joyride-button--done {
-      background: var(--ink) !important;
-      color: #fff !important;
-      border-color: var(--ink) !important;
-    }
-    ::ng-deep .joyride-button--prev,
-    ::ng-deep .joyride-button--close {
-      background: var(--surface) !important;
-      color: var(--ink) !important;
-    }
-    ::ng-deep .joyride-step__close svg {
-      fill: var(--ink-3) !important;
-    }
-
-    /* ── driver.js: alinear el popover al UI kit (reemplaza el bloque
-       ::ng-deep .joyride-* de más arriba, que se retira en el cleanup) ──── */
+    /* ── driver.js: alinear el popover del tour al UI kit ─────────────────── */
     ::ng-deep .driver-popover {
       background: var(--surface) !important;
       color: var(--ink) !important;
@@ -888,14 +819,13 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
       .nm-foot { flex-direction: column; align-items: stretch; }
       .nm-prof { align-items: stretch; text-align: center; }
       .nm-prof .nm-pmain { justify-content: center; }
+      .nm-prof .nm-net { text-align: center; }
       .grid { grid-template-columns: 1fr; }
     }
 
   `],
 })
 export class ArbitrageComponent implements OnInit {
-  constructor(private joyrideService: JoyrideService) {}
-
   ngOnInit() {
     let seen = true;
     try { seen = localStorage.getItem(ARB_TOUR_SEEN_KEY) === '1'; } catch {}

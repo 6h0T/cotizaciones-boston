@@ -9,8 +9,11 @@
       <!-- Operar está OCULTO del nav (operatoria aún simulada, no lista para
            usuarios). El código sigue vivo: se entra navegando a /operar o
            /operar/{ticker} a mano (deep-link, ver app.routes.ts). Para
-           re-publicarlo: restaurar este botón y el redirect '' → 'operar'
-           en app.routes.ts, y volver view a signal<View>('operaciones'). -->
+           re-publicarlo, restaurar este botón:
+           <a class="seg-btn" routerLink="/operar" [class.on]="view() === 'operaciones'" (click)="setView('operaciones')">Operaciones</a>
+           y opcionalmente el redirect '' → 'operar' en app.routes.ts y
+           view a signal<View>('operaciones') en app.ts. -->
+
       <button class="seg-btn" [class.on]="view() === 'arbitraje'" (click)="setView('arbitraje')">Arbitraje</button>
       <button class="seg-btn" [class.on]="view() === 'cotizaciones'" (click)="setView('cotizaciones')">Cotizaciones</button>
     </div>
@@ -149,8 +152,19 @@
       @if (detailPanel()) {
         <button class="back-btn" (click)="closeDetail()">← Cotizaciones</button>
       }
-      <strong>{{ subbarTitle() }}</strong>
-      <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
+      <!-- En Arbitraje el título se omite: la categoría (dólar + plazo) ya la
+           muestran los badges de arb-head dentro del componente, mostrarla acá
+           arriba la duplicaba. Se mantiene para el detalle de Cotizaciones
+           ("Ver todo" / Mapa de calor), que no tiene esos badges. -->
+      @if (view() !== 'arbitraje') {
+        <strong>{{ subbarTitle() }}</strong>
+      }
+      <!-- En Arbitraje se oculta el "hace Xs": quedaba descolocado (sin título)
+           y el estado de refresco ya lo da el intervalo (1 s) + "En vivo" del
+           navbar. Se mantiene para el detalle de Cotizaciones. -->
+      @if (view() !== 'arbitraje') {
+        <span class="status-cap" [class.err]="errors()[detailPanel() ?? activePanel()]">{{ subbarStatus() }}</span>
+      }
       @if (effectivePaused()) {
         <span class="pill warn">{{ marketClosedAutoPause() ? 'Mercado cerrado' : 'Snapshot congelado' }}</span>
       }
@@ -239,5 +253,7 @@
 </section>
 
 <footer class="foot">
-  <span>Fuente: IOL (primaria) · data912 (fallback) · dolarapi · Yahoo (índices y ETFs). Snapshot congelado al pausar o descargar.</span>
+  <p class="foot-legal">Boston Asset Manager S.A. es una Sociedad por Acciones Simplificada constituida bajo la ley de la República Argentina | CUIT 30-71652406-6 | IIBB CM902-30716524066 | DPPJ RL2019-22722943-GDEBA-DLYRMJGP | AAIP RL-2019-70261408-APN-DNPDP#AAIP | CNV Matrícula 1406 | RUMP RL-2023-96876697-APN-DNMGP#MDP | FINRA #310985</p>
+  <p class="foot-legal">Av. Corrientes 800, Ciudad Autónoma de Buenos Aires, Argentina</p>
+  <p class="foot-legal">Los accionistas limitan su responsabilidad a la integración del capital suscripto (Ley 19.550).</p>
 </footer>

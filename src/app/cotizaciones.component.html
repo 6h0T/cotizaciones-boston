@@ -1,5 +1,5 @@
 @if (mode() === 'basico') {
-  <!-- ── Modo simple: Mercado hoy · Dólar · Mejores oportunidades ─────────── -->
+  <!-- ── Modo simple: Mercado hoy · Dólar · Panel General ─────────────────── -->
   <div class="basic">
     <div class="tile basic-market">
       <div class="tile-head">
@@ -17,25 +17,12 @@
     <div class="basic-side">
       <ng-container *ngTemplateOutlet="dolarTpl" />
 
-      <div class="tile">
-        <div class="tile-head">
-          <span class="tile-name">Mejores oportunidades</span>
-          <span class="tile-status">arbitraje MEP · CCL</span>
-        </div>
-        <div class="opps">
-          @for (o of opportunities(); track o.tabId) {
-            <button class="opp" (click)="openArb.emit(o.tabId)" title="Abrir en el arbitrador">
-              <span class="opp-tab">{{ o.label }}</span>
-              <span class="opp-trade">comprás <b>{{ o.buyBase }}</b> · vendés <b>{{ o.sellBase }}</b></span>
-              <span class="opp-vol num">USD {{ fmt(o.tradeableUsd, 0) }}</span>
-              <span class="opp-net num" [class.pos]="o.netPct > 0" [class.neg]="o.netPct <= 0">{{ fmt(o.netPct) }}%</span>
-            </button>
-          } @empty {
-            <div class="tile-empty">Esperando datos del arbitrador…</div>
-          }
-        </div>
-        <div class="opp-note">% neto estimado tras comisión. Tocá una fila para abrirla en el arbitrador.</div>
-      </div>
+      <!-- Panel General (pedido de Elio): mismo casillero que el del mosaico
+           avanzado, reusando tileTpl y panelGeneralTile() — antes acá vivía
+           la card "Mejores oportunidades" del arbitrador. -->
+      @if (panelGeneralTile(); as pg) {
+        <ng-container *ngTemplateOutlet="tileTpl; context: { $implicit: pg }" />
+      }
     </div>
   </div>
 } @else {
