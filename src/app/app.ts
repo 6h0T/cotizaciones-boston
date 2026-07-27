@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, signal, computed, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, ViewChild, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,6 +9,7 @@ import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { forkJoin, Observable, Subscription, timer } from 'rxjs';
 import { catchError, filter, map, of, switchMap } from 'rxjs';
 import * as XLSX from 'xlsx';
+import { runTour } from './tour.util';
 import { ArbitrageComponent } from './arbitrage.component';
 import { CotizacionesComponent } from './cotizaciones.component';
 import { CedearsHeatmapComponent } from './cedears-heatmap.component';
@@ -110,6 +111,10 @@ const TEXT_COLS = new Set(['symbol', 'ticker', 'tipo', 'desc', 'code', 'region',
 const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
 const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
 
+// Tour de driver.js del toggle Simple/Avanzado — se muestra una sola vez,
+// la primera vez que el usuario entra a Cotizaciones.
+const COT_TOUR_SEEN_KEY = 'hasSeenCotizacionesModeTutorial';
+
 // Fuente que efectivamente entregó el libro de CEDEARs de un plazo.
 type CedearsSrc = 'cohen' | 'iol' | null;
 
@@ -126,6 +131,10 @@ type View = 'arbitraje' | 'cotizaciones' | 'operaciones';
 export class App implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private router = inject(Router);
+  // Referencia al <app-arbitrage #arb> del template — sólo existe mientras
+  // view() === 'arbitraje' (vive dentro de un @if). La usa showHelp() para
+  // relanzar a mano el tour de esa vista.
+  @ViewChild('arb') private arbComponent?: ArbitrageComponent;
 
   panels = PANELS;
   arbTabs = ARB_TABS;
@@ -626,6 +635,45 @@ export class App implements OnInit, OnDestroy {
     // navega manualmente como red de seguridad.
     if (v === 'operaciones' && !this.router.url.startsWith('/operar')) {
       this.router.navigate(['/operar']);
+    }
+    if (v === 'cotizaciones') this.maybeStartCotizacionesTour();
+  }
+
+  // El toggle Simple/Avanzado vive en un @if(view() === 'cotizaciones'), así
+  // que recién existe en el DOM después de que corra este ciclo de change
+  // detection — el setTimeout(0) espera a que se monte antes de buscarlo.
+  private maybeStartCotizacionesTour() {
+    setTimeout(() => this.startCotizacionesTour(), 0);
+  }
+
+  private startCotizacionesTour(force = false) {
+    if (!document.querySelector('.seg-mode')) return; // vista cambió antes de que corriera el timeout
+    runTour([
+      {
+        element: '#cot-mode-basico',
+        popover: {
+          title: 'Modo Simple',
+          description: 'Muestra un resumen rápido con los números principales del mercado.',
+        },
+      },
+      {
+        element: '#cot-mode-avanzado',
+        popover: {
+          title: 'Modo Avanzado',
+          description: 'Te permite ver todas las tablas detalladas, historial y mucha más información.',
+        },
+      },
+    ], COT_TOUR_SEEN_KEY, { force });
+  }
+
+  // Botón "Ayuda" de la toolbar: relanza a mano el tour de la vista actual,
+  // ignorando el flag de localStorage (a diferencia del disparo automático,
+  // que sólo corre la primera vez).
+  showHelp() {
+    if (this.view() === 'arbitraje') {
+      this.arbComponent?.startTour(true);
+    } else if (this.view() === 'cotizaciones') {
+      this.startCotizacionesTour(true);
     }
   }
 

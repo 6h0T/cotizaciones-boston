@@ -320,6 +320,15 @@ tbody tr:hover td { background: var(--accent-sf); }
   color: var(--pos);
 }
 
+.help-btn {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r-sm); color: var(--ink-3); cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.help-btn:hover { background: var(--surface-2); color: var(--ink); border-color: var(--line-2); }
+
 .alert-badge {
   position: absolute;
   top: 3px; right: 3px;
@@ -434,6 +443,7 @@ tbody tr:hover td { background: var(--accent-sf); }
   /* ── Ocultar controles no esenciales en mobile ── */
   .controls .dropdown,
   .controls .alert-toggle,
+  .controls .help-btn,
   .controls .export { display: none; }
 
   /* ── Compactar rate (1s) + toggle (En vivo) ── */
@@ -486,7 +496,7 @@ tbody tr:hover td { background: var(--accent-sf); }
 /* Botones neutros → liquid glass (icono, En vivo, Horario, campana). Los
    estados semánticos (.toggle.paused, .alert-toggle.on, .hours-trigger.on)
    tienen mayor especificidad y conservan su color. */
-.icon-btn, .toggle, .hours-trigger, .alert-toggle {
+.icon-btn, .toggle, .hours-trigger, .alert-toggle, .help-btn {
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
   backdrop-filter: blur(14px) saturate(180%);
@@ -497,7 +507,8 @@ tbody tr:hover td { background: var(--accent-sf); }
 .icon-btn:hover:not(:disabled),
 .toggle:hover,
 .hours-trigger:hover,
-.alert-toggle:hover {
+.alert-toggle:hover,
+.help-btn:hover {
   background: var(--glass-bg-hover);
   border-color: var(--glass-stroke);
   color: var(--boston-700);
