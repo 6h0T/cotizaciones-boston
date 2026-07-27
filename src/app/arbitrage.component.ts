@@ -27,10 +27,7 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
   template: `
     <div class="arb">
       <div class="arb-head">
-        <!-- Botón del tour OCULTO (pedido de Elio): el tour con driver.js sigue
-             vivo (ver startTour()), sólo se esconde su disparador. Para
-             re-publicarlo, restaurar este botón:
-             <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">Probar tour</button> -->
+        <button class="tour-test-btn" (click)="startTour()" title="Probar tour de estrategias">Probar tour</button>
         <span class="tour-selector">
           <span class="badge dollar">{{ dollarType() }}</span>
           <span class="badge plazo">{{ settlementLabel(settlement()) }}</span>
