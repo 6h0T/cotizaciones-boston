@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, input, output, signal } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { runTour } from './tour.util';
@@ -701,11 +701,9 @@ const ARB_TOUR_SEEN_KEY = 'arbitrage-tour-seen';
 
   `],
 })
-export class ArbitrageComponent implements OnInit {
-  ngOnInit() {
-    this.startTour();
-  }
-
+export class ArbitrageComponent {
+  // El tour ya no se auto-dispara al entrar: sólo se lanza desde el botón
+  // "Ayuda" de la toolbar (ver showHelp() en app.ts), siempre con force=true.
   startTour(force = false) {
     runTour([
       {

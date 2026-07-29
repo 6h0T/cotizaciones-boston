@@ -111,8 +111,8 @@ const TEXT_COLS = new Set(['symbol', 'ticker', 'tipo', 'desc', 'code', 'region',
 const ALERT_FIRE = 2.0;   // umbral de disparo: % neto
 const ALERT_REARM = 1.9;  // umbral de re-arme (histéresis)
 
-// Tour de driver.js del toggle Simple/Avanzado — se muestra una sola vez,
-// la primera vez que el usuario entra a Cotizaciones.
+// Tour de driver.js del toggle Simple/Avanzado — ya no se auto-dispara al
+// entrar a Cotizaciones: sólo se lanza desde el botón "Ayuda" de la toolbar.
 const COT_TOUR_SEEN_KEY = 'hasSeenCotizacionesModeTutorial';
 
 // Fuente que efectivamente entregó el libro de CEDEARs de un plazo.
@@ -636,14 +636,6 @@ export class App implements OnInit, OnDestroy {
     if (v === 'operaciones' && !this.router.url.startsWith('/operar')) {
       this.router.navigate(['/operar']);
     }
-    if (v === 'cotizaciones') this.maybeStartCotizacionesTour();
-  }
-
-  // El toggle Simple/Avanzado vive en un @if(view() === 'cotizaciones'), así
-  // que recién existe en el DOM después de que corra este ciclo de change
-  // detection — el setTimeout(0) espera a que se monte antes de buscarlo.
-  private maybeStartCotizacionesTour() {
-    setTimeout(() => this.startCotizacionesTour(), 0);
   }
 
   private startCotizacionesTour(force = false) {
@@ -666,9 +658,9 @@ export class App implements OnInit, OnDestroy {
     ], COT_TOUR_SEEN_KEY, { force });
   }
 
-  // Botón "Ayuda" de la toolbar: relanza a mano el tour de la vista actual,
-  // ignorando el flag de localStorage (a diferencia del disparo automático,
-  // que sólo corre la primera vez).
+  // Botón "Ayuda" de la toolbar: único punto de entrada al tour de la vista
+  // actual (el auto-disparo de primera vez se quitó); force=true ignora el
+  // flag "visto" de localStorage.
   showHelp() {
     if (this.view() === 'arbitraje') {
       this.arbComponent?.startTour(true);
