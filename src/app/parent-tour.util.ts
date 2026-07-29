@@ -21,6 +21,28 @@ const ALLOWED_ORIGINS = [
 
 export type ParentTourView = 'arbitraje' | 'cotizaciones';
 
+/**
+ * ¿Estamos embebidos en otra página (el dashboard de boston-ar)?
+ *
+ * Cuando lo estamos, el tutorial lo maneja íntegramente el parent: nuestros
+ * tours propios de driver.js no deben correr, porque sus popovers y su overlay
+ * se superpondrían al del parent y quedarían dos tutoriales encima del otro.
+ *
+ * En acceso directo a la app (su URL es pública) esto da false y todo sigue
+ * igual que antes: botón "Ayuda" y tours propios funcionando.
+ *
+ * El try/catch cubre navegadores que tiran SecurityError al comparar contra
+ * window.top desde un frame cross-origin: si falla, asumimos que sí estamos
+ * embebidos, que es el caso en el que ese error puede ocurrir.
+ */
+export function isEmbedded(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export interface ParentTourFocus {
   view: ParentTourView;
   selector: string;

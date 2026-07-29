@@ -241,3 +241,13 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .bam-tour-focus { animation: none; }
 }
+
+/* Embebidos en boston-ar el tutorial lo maneja el parent. runTour() ya no
+   arranca dentro del iframe; esto es el cinturón de seguridad por si algún
+   popover u overlay de driver.js se montara igual, para no apilar dos
+   tutoriales encima del otro. */
+body.bam-embedded .driver-popover,
+body.bam-embedded .driver-overlay,
+body.bam-embedded .driver-active-element::after {
+  display: none !important;
+}
