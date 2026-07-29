@@ -21,6 +21,7 @@ import { scanOpportunities, nextAlertState } from './arb-engine';
 import { saveSnapshot, loadSnapshot } from './panel-snapshot';
 import type { ArbOpportunity, MonitorSettings } from './arb-engine';
 import { isMarketOpen, isValidTimeRange, saveMarketHoursOverride, getEffectiveMarketHours } from './market-hours.config';
+import { listenParentTour } from './parent-tour.util';
 
 interface PanelDef {
   id: string;
@@ -205,6 +206,8 @@ export class App implements OnInit, OnDestroy {
   private sub?: Subscription;
   // Suscripción a router.events para el sync de deep-link (ver ngOnInit).
   private sub2?: Subscription;
+  /** Baja del listener del tutorial dirigido desde el parent (boston-ar). */
+  private stopParentTour?: () => void;
   // Guard del burst CI: evita encolar bursts t0 cuando el anterior sigue en vuelo.
   private t0InFlight = false;
 
@@ -298,11 +301,20 @@ export class App implements OnInit, OnDestroy {
           this.view.set('operaciones');
         }
       });
+
+    // Tutorial dirigido desde boston-ar: el tour corre en el parent y nos manda
+    // qué solapa abrir y qué módulo resaltar en cada paso. Fuera del iframe no
+    // llega ningún mensaje, así que esto es inerte en uso directo.
+    this.stopParentTour = listenParentTour(
+      () => this.view(),
+      (v) => this.setView(v),
+    );
   }
 
   ngOnDestroy() {
     this.sub?.unsubscribe();
     this.sub2?.unsubscribe();
+    this.stopParentTour?.();
     document.removeEventListener('pointerdown', this.unlockAudio);
     document.removeEventListener('keydown', this.unlockAudio);
   }
